@@ -80,6 +80,72 @@ public sealed class FileSecretVaultStoreTests : IDisposable
         exception.Message.Should().Be("The provided master password is incorrect or the vault file is corrupted.");
     }
 
+    [Fact(DisplayName = "Open should throw when the vault file does not exist")]
+    [Trait("Category", "Unit")]
+    public void OpenShouldThrowWhenTheVaultFileDoesNotExist()
+    {
+        // Arrange
+        var clock = new StubClock(new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero));
+        var store = new FileSecretVaultStore(_storageDirectory, clock);
+
+        // Act
+        var action = () => store.Open(new MasterPassword("StrongMasterPassword1!"));
+
+        // Assert
+        var exception = action.Should().Throw<FileNotFoundException>().Which;
+        exception.Message.Should().Contain("Vault file was not found.");
+    }
+
+    [Fact(DisplayName = "Open should throw when the vault file contains invalid JSON")]
+    [Trait("Category", "Unit")]
+    public void OpenShouldThrowWhenTheVaultFileContainsInvalidJson()
+    {
+        // Arrange
+        var clock = new StubClock(new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero));
+        var store = new FileSecretVaultStore(_storageDirectory, clock);
+        Directory.CreateDirectory(_storageDirectory);
+        File.WriteAllText(
+            Path.Combine(_storageDirectory, "vault.localpass"),
+            "{ invalid json",
+            System.Text.Encoding.UTF8);
+
+        // Act
+        var action = () => store.Open(new MasterPassword("StrongMasterPassword1!"));
+
+        // Assert
+        var exception = action.Should().Throw<InvalidDataException>().Which;
+        exception.Message.Should().Be("Vault file is invalid.");
+    }
+
+    [Fact(DisplayName = "ChangeMasterPassword should re-encrypt the vault for the new password")]
+    [Trait("Category", "Unit")]
+    public void ChangeMasterPasswordShouldReEncryptTheVaultForTheNewPassword()
+    {
+        // Arrange
+        var clock = new StubClock(new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero));
+        var store = new FileSecretVaultStore(_storageDirectory, clock);
+        var originalPassword = new MasterPassword("StrongMasterPassword1!");
+        var updatedPassword = new MasterPassword("AnotherStrongPassword1!");
+        var session = store.CreateNew(originalPassword);
+        var record = SecretRecord.Create(
+            "GitHub",
+            "user@example.com",
+            "Password123!",
+            "primary account",
+            clock.UtcNow);
+        session = store.Save(session.WithVault(session.Vault.WithEntry(record, clock.UtcNow)));
+
+        // Act
+        _ = store.ChangeMasterPassword(session, updatedPassword);
+        var reopenedSession = store.Open(updatedPassword);
+        var oldPasswordAction = () => store.Open(originalPassword);
+
+        // Assert
+        reopenedSession.Vault.Count.Should().Be(1);
+        reopenedSession.Vault.GetSecret(0).Source.Value.Should().Be("GitHub");
+        oldPasswordAction.Should().Throw<InvalidDataException>();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_storageDirectory))
