@@ -2,10 +2,7 @@ using Abstractions;
 
 using Models;
 
-using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Infrastructure;
 
@@ -15,15 +12,23 @@ namespace Infrastructure;
 public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
 {
     private const int MaxUnlockAttempts = 3;
-    private const int PromptRefreshDelayMilliseconds = 75;
 
     /// <summary>
     /// Initializes a new vault access coordinator.
     /// </summary>
     /// <param name="vaultStore">Encrypted vault store.</param>
-    public TerminalVaultAccessCoordinator(ISecretVaultStore vaultStore)
+    /// <param name="secretInputPrompter">Secret input prompter used for password entry and retry messaging.</param>
+    /// <param name="vaultAccessScreen">Console screen used to render access-flow instructions.</param>
+    public TerminalVaultAccessCoordinator(
+        ISecretVaultStore vaultStore,
+        ISecretInputPrompter secretInputPrompter,
+        IVaultAccessScreen vaultAccessScreen)
     {
         _vaultStore = vaultStore ?? throw new ArgumentNullException(nameof(vaultStore));
+        _secretInputPrompter = secretInputPrompter
+            ?? throw new ArgumentNullException(nameof(secretInputPrompter));
+        _vaultAccessScreen = vaultAccessScreen
+            ?? throw new ArgumentNullException(nameof(vaultAccessScreen));
     }
 
     /// <inheritdoc />
@@ -37,21 +42,15 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            Console.Clear();
-            Console.WriteLine("LocalPass");
-            Console.WriteLine();
-            Console.WriteLine("No vault file was found. Create a new master password.");
-            Console.WriteLine("Requirements: 16+ chars, upper/lowercase, digit, symbol, no whitespace.");
-            Console.WriteLine("Press Esc at any prompt to cancel.");
-            Console.WriteLine();
+            _vaultAccessScreen.ShowCreateVaultPrompt();
 
-            var password = ReadSecret("Master password");
+            var password = _secretInputPrompter.ReadSecret("Master password");
             if (password is null)
             {
                 return null;
             }
 
-            var confirmation = ReadSecret("Confirm password");
+            var confirmation = _secretInputPrompter.ReadSecret("Confirm password");
             if (confirmation is null)
             {
                 return null;
@@ -59,7 +58,7 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
 
             if (!string.Equals(password, confirmation, StringComparison.Ordinal))
             {
-                ShowRetry("Passwords do not match.");
+                _secretInputPrompter.ShowRetry("Passwords do not match.");
                 continue;
             }
 
@@ -69,7 +68,7 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
             }
             catch (InvalidDataException exception)
             {
-                ShowRetry(exception.Message);
+                _secretInputPrompter.ShowRetry(exception.Message);
             }
         }
 
@@ -85,14 +84,9 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
                 return null;
             }
 
-            Console.Clear();
-            Console.WriteLine("LocalPass");
-            Console.WriteLine();
-            Console.WriteLine("Unlock the existing vault.");
-            Console.WriteLine($"Attempt {attempt} of {MaxUnlockAttempts}. Press Esc to cancel.");
-            Console.WriteLine();
+            _vaultAccessScreen.ShowUnlockPrompt(attempt, MaxUnlockAttempts);
 
-            var password = ReadSecret("Master password");
+            var password = _secretInputPrompter.ReadSecret("Master password");
             if (password is null)
             {
                 return null;
@@ -104,131 +98,15 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
             }
             catch (InvalidDataException exception)
             {
-                ShowRetry(exception.Message);
+                _secretInputPrompter.ShowRetry(exception.Message);
             }
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Vault unlock aborted.");
+        _vaultAccessScreen.ShowUnlockAborted();
         return null;
     }
 
-    private static string? ReadSecret(string promptLabel)
-    {
-        var builder = new StringBuilder();
-        var currentLayout = GetKeyboardLayoutDisplayName();
-        var renderedPrompt = BuildPrompt(promptLabel, currentLayout);
-        RenderPrompt(renderedPrompt, builder.Length, renderedPrompt.Length);
-
-        while (true)
-        {
-            var latestLayout = GetKeyboardLayoutDisplayName();
-            if (!string.Equals(latestLayout, currentLayout, StringComparison.Ordinal))
-            {
-                currentLayout = latestLayout;
-                renderedPrompt = BuildPrompt(promptLabel, currentLayout);
-                RenderPrompt(renderedPrompt, builder.Length, renderedPrompt.Length + builder.Length);
-            }
-
-            if (!Console.KeyAvailable)
-            {
-                Thread.Sleep(PromptRefreshDelayMilliseconds);
-                continue;
-            }
-
-            var key = Console.ReadKey(intercept: true);
-            switch (key.Key)
-            {
-                case ConsoleKey.Enter:
-                    Console.WriteLine();
-                    return builder.ToString();
-
-                case ConsoleKey.Escape:
-                    Console.WriteLine();
-                    return null;
-
-                case ConsoleKey.Backspace:
-                    if (builder.Length > 0)
-                    {
-                        builder.Length--;
-                        RenderPrompt(renderedPrompt, builder.Length, renderedPrompt.Length + builder.Length + 1);
-                    }
-
-                    break;
-
-                default:
-                    if (!char.IsControl(key.KeyChar))
-                    {
-                        builder.Append(key.KeyChar);
-                        Console.Write('*');
-                    }
-
-                    break;
-            }
-        }
-    }
-
-    private static string BuildPrompt(string promptLabel, string keyboardLayout)
-        => $"{promptLabel} [{keyboardLayout}]: ";
-
-    private static string GetKeyboardLayoutDisplayName()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return CultureInfo.CurrentCulture.Name;
-        }
-
-        try
-        {
-            var foregroundWindow = GetForegroundWindow();
-            var threadIdentifier = foregroundWindow == nint.Zero
-                ? 0U
-                : GetWindowThreadProcessId(foregroundWindow, nint.Zero);
-            var keyboardLayout = GetKeyboardLayout(threadIdentifier);
-            var languageIdentifier = unchecked((ushort)keyboardLayout.ToInt64());
-            return CultureInfo.GetCultureInfo(languageIdentifier).Name;
-        }
-        catch (CultureNotFoundException)
-        {
-            return "unknown";
-        }
-    }
-
-    private static void RenderPrompt(string prompt, int hiddenCharacterCount, int previousWidth)
-    {
-        Console.Write('\r');
-        if (previousWidth > 0)
-        {
-            Console.Write(new string(' ', previousWidth));
-            Console.Write('\r');
-        }
-
-        Console.Write(prompt);
-        if (hiddenCharacterCount > 0)
-        {
-            Console.Write(new string('*', hiddenCharacterCount));
-        }
-    }
-
-    private static void ShowRetry(string message)
-    {
-        Console.WriteLine();
-        Console.WriteLine(message);
-        Console.WriteLine("Press Enter to try again.");
-        _ = Console.ReadLine();
-    }
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("user32.dll")]
-    private static extern nint GetKeyboardLayout(uint idThread);
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("user32.dll")]
-    private static extern nint GetForegroundWindow();
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(nint windowHandle, nint processId);
-
+    private readonly IVaultAccessScreen _vaultAccessScreen;
+    private readonly ISecretInputPrompter _secretInputPrompter;
     private readonly ISecretVaultStore _vaultStore;
 }

@@ -3,7 +3,6 @@ using Abstractions;
 using Models;
 
 using System.IO;
-using System.Text;
 
 using Terminal.Gui;
 
@@ -17,20 +16,10 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
     /// <summary>
     /// Initializes a new console renderer.
     /// </summary>
-    /// <param name="vaultStore">Store used for persistence operations.</param>
-    /// <param name="clock">Clock used for timestamps on new and updated secrets.</param>
-    /// <param name="storageLocation">Provider for the LocalPass storage directory path.</param>
-    /// <param name="folderOpener">Adapter used to open directories in the OS shell.</param>
-    public LocalPassConsoleRenderer(
-        ISecretVaultStore vaultStore,
-        IClock clock,
-        ISecretVaultStorageLocation storageLocation,
-        IFolderOpener folderOpener)
+    /// <param name="sessionOperations">Session-level LocalPass operations.</param>
+    public LocalPassConsoleRenderer(ILocalPassSessionOperations sessionOperations)
     {
-        _vaultStore = vaultStore ?? throw new ArgumentNullException(nameof(vaultStore));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-        _storageLocation = storageLocation ?? throw new ArgumentNullException(nameof(storageLocation));
-        _folderOpener = folderOpener ?? throw new ArgumentNullException(nameof(folderOpener));
+        _sessionOperations = sessionOperations ?? throw new ArgumentNullException(nameof(sessionOperations));
     }
 
     /// <inheritdoc />
@@ -127,9 +116,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             {
                 currentStatusMessage = statusMessage;
 
-                var items = currentSession.Vault.Entries
-                    .Select((entry, index) => $"[{index + 1}] {entry.Source.Value} | {entry.Login.Value}")
-                    .ToList();
+                var items = LocalPassViewFormatter.BuildListItems(currentSession.Vault);
                 var previousSelection = listView.SelectedItem;
                 var nextSelection = items.Count == 0
                     ? 0
@@ -150,12 +137,12 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 }
 
                 var selectedSecret = GetSelectedSecret(currentSession.Vault, listView.SelectedItem);
-                summaryLabel.Text = BuildSummary(currentSession.Vault, selectedSecret);
-                statusLabel.Text = FormatStatus(statusMessage);
+                summaryLabel.Text = LocalPassViewFormatter.BuildSummary(currentSession.Vault, selectedSecret);
+                statusLabel.Text = LocalPassViewFormatter.FormatStatus(statusMessage);
                 detailsFrame.Title = selectedSecret is null
                     ? "Payload Inspect"
                     : $"Payload :: {selectedSecret.Source.Value}";
-                detailsView.Text = BuildDetails(selectedSecret, revealPasswords);
+                detailsView.Text = LocalPassViewFormatter.BuildDetails(selectedSecret, revealPasswords);
             }
 
             void SetSelection(Guid id)
@@ -167,17 +154,28 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 }
             }
 
-            void PersistVault(SecretVault updatedVault, string statusMessage, Guid? preferredSelection)
+            void ApplyResult(LocalPassOperationResult result)
             {
+                currentSession = result.Session;
+                RefreshUi(result.StatusMessage);
+                if (result.PreferredSelectionId.HasValue)
+                {
+                    SetSelection(result.PreferredSelectionId.Value);
+                    RefreshUi(result.StatusMessage);
+                }
+            }
+
+            void AddSecret()
+            {
+                var result = ShowSecretDialog(null);
+                if (result is null)
+                {
+                    return;
+                }
+
                 try
                 {
-                    currentSession = _vaultStore.Save(currentSession.WithVault(updatedVault));
-                    RefreshUi(statusMessage);
-                    if (preferredSelection.HasValue)
-                    {
-                        SetSelection(preferredSelection.Value);
-                        RefreshUi(statusMessage);
-                    }
+                    ApplyResult(_sessionOperations.AddSecret(currentSession, result));
                 }
                 catch (Exception exception) when (
                     exception is IOException
@@ -189,24 +187,6 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 }
             }
 
-            void AddSecret()
-            {
-                if (!TryShowSecretDialog(null, out var result))
-                {
-                    return;
-                }
-
-                var timestamp = _clock.UtcNow;
-                var record = SecretRecord.Create(
-                    result.Source,
-                    result.Login,
-                    result.Password,
-                    result.Notes,
-                    timestamp);
-                var updatedVault = currentSession.Vault.WithEntry(record, timestamp);
-                PersistVault(updatedVault, $"Saved {record.Source.Value}.", record.Id);
-            }
-
             void EditSecret()
             {
                 var selectedSecret = GetSelectedSecret(currentSession.Vault, listView.SelectedItem);
@@ -216,20 +196,24 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                     return;
                 }
 
-                if (!TryShowSecretDialog(selectedSecret, out var result))
+                var result = ShowSecretDialog(selectedSecret);
+                if (result is null)
                 {
                     return;
                 }
 
-                var timestamp = _clock.UtcNow;
-                var updatedRecord = selectedSecret.Update(
-                    result.Source,
-                    result.Login,
-                    result.Password,
-                    result.Notes,
-                    timestamp);
-                var updatedVault = currentSession.Vault.WithEntry(updatedRecord, timestamp);
-                PersistVault(updatedVault, $"Updated {updatedRecord.Source.Value}.", updatedRecord.Id);
+                try
+                {
+                    ApplyResult(_sessionOperations.EditSecret(currentSession, selectedSecret, result));
+                }
+                catch (Exception exception) when (
+                    exception is IOException
+                    or UnauthorizedAccessException
+                    or InvalidDataException)
+                {
+                    MessageBox.ErrorQuery("Save failed", exception.Message, "OK");
+                    RefreshUi($"Save failed: {exception.Message}");
+                }
             }
 
             void DeleteSecret()
@@ -252,9 +236,18 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                     return;
                 }
 
-                var timestamp = _clock.UtcNow;
-                var updatedVault = currentSession.Vault.WithoutEntry(selectedSecret.Id, timestamp);
-                PersistVault(updatedVault, "Secret deleted.", null);
+                try
+                {
+                    ApplyResult(_sessionOperations.DeleteSecret(currentSession, selectedSecret));
+                }
+                catch (Exception exception) when (
+                    exception is IOException
+                    or UnauthorizedAccessException
+                    or InvalidDataException)
+                {
+                    MessageBox.ErrorQuery("Save failed", exception.Message, "OK");
+                    RefreshUi($"Save failed: {exception.Message}");
+                }
             }
 
             void TogglePasswordVisibility()
@@ -265,15 +258,15 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
             void ChangeMasterPassword()
             {
-                if (!TryShowMasterPasswordDialog(out var newMasterPassword))
+                var newMasterPassword = ShowMasterPasswordDialog();
+                if (newMasterPassword is null)
                 {
                     return;
                 }
 
                 try
                 {
-                    currentSession = _vaultStore.ChangeMasterPassword(currentSession, newMasterPassword);
-                    RefreshUi("Master password updated and vault re-encrypted.");
+                    ApplyResult(_sessionOperations.ChangeMasterPassword(currentSession, newMasterPassword));
                 }
                 catch (Exception exception) when (
                     exception is IOException
@@ -289,9 +282,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             {
                 try
                 {
-                    var storageDirectoryPath = _storageLocation.GetStorageDirectoryPath();
-                    _folderOpener.OpenDirectory(storageDirectoryPath);
-                    RefreshUi($"Opened storage directory: {storageDirectoryPath}");
+                    RefreshUi(_sessionOperations.OpenStorageDirectory());
                 }
                 catch (Exception exception) when (
                     exception is ArgumentException
@@ -347,44 +338,10 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             ? null
             : vault.GetSecret(index);
 
-    private static string BuildSummary(SecretVault vault, SecretRecord? selectedSecret)
-    {
-        var selectedText = selectedSecret is null
-            ? "none"
-            : $"{selectedSecret.Source.Value} / {selectedSecret.Login.Value}";
-
-        return $"VAULT {vault.Count:000}  LAST WRITE {vault.UpdatedUtc:yyyy-MM-dd HH:mm:ss} UTC  TARGET {selectedText}";
-    }
-
-    private static string BuildDetails(SecretRecord? secret, bool revealPasswords)
-    {
-        if (secret is null)
-        {
-            return "No secrets indexed.\n\nPress N to create the first record.";
-        }
-
-        var builder = new StringBuilder();
-        _ = builder.AppendLine("SOURCE    " + secret.Source.Value);
-        _ = builder.AppendLine("LOGIN     " + secret.Login.Value);
-        _ = builder.AppendLine(
-            "PASSWORD  " + (revealPasswords ? secret.Password.Value : BuildMaskedPassword(secret.Password.Value)));
-        _ = builder.AppendLine("NOTES     " + (secret.Notes.HasValue ? secret.Notes.Value : "(none)"));
-        _ = builder.AppendLine("CREATED   " + secret.CreatedUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC");
-        _ = builder.AppendLine("UPDATED   " + secret.UpdatedUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC");
-        _ = builder.AppendLine("RECORD ID " + secret.Id);
-
-        return builder.ToString();
-    }
-
-    private static string FormatStatus(string statusMessage) => "[ READY ] " + statusMessage;
-
-    private static string BuildMaskedPassword(string password)
-        => $"{new string('*', Math.Clamp(password.Length, 8, 16))} ({password.Length} chars hidden)";
-
-    private static bool TryShowSecretDialog(SecretRecord? existingSecret, out SecretDialogResult result)
+    private static SecretEditorInput? ShowSecretDialog(SecretRecord? existingSecret)
     {
         var wasAccepted = false;
-        var pendingResult = default(SecretDialogResult);
+        SecretEditorInput? pendingResult = null;
 
         var sourceField = new TextField(existingSecret?.Source.Value ?? string.Empty)
         {
@@ -475,11 +432,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 var password = ReadText(passwordField);
                 var notes = ReadText(notesView);
 
-                _ = new SecretSource(source);
-                _ = new SecretLogin(login);
-                _ = new SecretPassword(password);
-
-                pendingResult = new SecretDialogResult(source, login, password, notes);
+                pendingResult = SecretEditorInput.Create(source, login, password, notes);
                 wasAccepted = true;
                 Application.RequestStop();
             }
@@ -494,14 +447,13 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
         dialog.AddButton(cancelButton);
 
         Application.Run(dialog);
-        result = pendingResult;
-        return wasAccepted;
+        return wasAccepted ? pendingResult : null;
     }
 
-    private static bool TryShowMasterPasswordDialog(out MasterPassword masterPassword)
+    private static MasterPassword? ShowMasterPasswordDialog()
     {
         var wasAccepted = false;
-        var pendingMasterPassword = default(MasterPassword);
+        MasterPassword? pendingMasterPassword = null;
 
         var passwordField = new TextField(string.Empty)
         {
@@ -588,8 +540,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
         dialog.AddButton(cancelButton);
 
         Application.Run(dialog);
-        masterPassword = pendingMasterPassword!;
-        return wasAccepted;
+        return wasAccepted ? pendingMasterPassword : null;
     }
 
     private static string ReadText(TextField field)
@@ -628,14 +579,5 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
         };
 
-    private readonly IClock _clock;
-    private readonly IFolderOpener _folderOpener;
-    private readonly ISecretVaultStorageLocation _storageLocation;
-    private readonly ISecretVaultStore _vaultStore;
-
-    private readonly record struct SecretDialogResult(
-        string Source,
-        string Login,
-        string Password,
-        string Notes);
+    private readonly ILocalPassSessionOperations _sessionOperations;
 }
