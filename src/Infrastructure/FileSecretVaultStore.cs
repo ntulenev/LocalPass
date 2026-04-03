@@ -13,7 +13,7 @@ namespace Infrastructure;
 /// <summary>
 /// Stores the LocalPass vault in a locally encrypted file.
 /// </summary>
-public sealed class FileSecretVaultStore : ISecretVaultStore
+public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorageLocation
 {
     private const int CurrentVersion = 1;
     private const int KeySize = 32;
@@ -141,6 +141,9 @@ public sealed class FileSecretVaultStore : ISecretVaultStore
 
         return Save(session.WithMasterPassword(newMasterPassword));
     }
+
+    /// <inheritdoc />
+    public string GetStorageDirectoryPath() => _storageDirectory;
 
     private static EncryptedVaultFileDocument EncryptVault(
         SecretVault vault,

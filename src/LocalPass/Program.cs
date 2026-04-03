@@ -17,7 +17,12 @@ var builder = Host.CreateDefaultBuilder()
         _ = hostContext;
         _ = services.AddSingleton<IApplication, Application>();
         _ = services.AddSingleton<IClock, DefaultClock>();
-        _ = services.AddSingleton<ISecretVaultStore, FileSecretVaultStore>();
+        _ = services.AddSingleton<FileSecretVaultStore>();
+        _ = services.AddSingleton<ISecretVaultStore>(serviceProvider =>
+            serviceProvider.GetRequiredService<FileSecretVaultStore>());
+        _ = services.AddSingleton<ISecretVaultStorageLocation>(serviceProvider =>
+            serviceProvider.GetRequiredService<FileSecretVaultStore>());
+        _ = services.AddSingleton<IFolderOpener, SystemFolderOpener>();
         _ = services.AddSingleton<IVaultAccessCoordinator, TerminalVaultAccessCoordinator>();
         _ = services.AddSingleton<ISecretVaultConsoleRenderer, LocalPassConsoleRenderer>();
         _ = services.AddSingleton<ILocalPassWorkflow, LocalPassWorkflow>();

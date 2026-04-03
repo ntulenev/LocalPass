@@ -18,7 +18,12 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CA1515</NoWarn>
+    <ApplicationIcon>1458264596_authorisation_lock_padlock_safe_password_privacy_security_icon-icons.com_55333.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="1458264596_authorisation_lock_padlock_safe_password_privacy_security_icon-icons.com_55333.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1" />

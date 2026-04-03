@@ -19,10 +19,18 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
     /// </summary>
     /// <param name="vaultStore">Store used for persistence operations.</param>
     /// <param name="clock">Clock used for timestamps on new and updated secrets.</param>
-    public LocalPassConsoleRenderer(ISecretVaultStore vaultStore, IClock clock)
+    /// <param name="storageLocation">Provider for the LocalPass storage directory path.</param>
+    /// <param name="folderOpener">Adapter used to open directories in the OS shell.</param>
+    public LocalPassConsoleRenderer(
+        ISecretVaultStore vaultStore,
+        IClock clock,
+        ISecretVaultStorageLocation storageLocation,
+        IFolderOpener folderOpener)
     {
         _vaultStore = vaultStore ?? throw new ArgumentNullException(nameof(vaultStore));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _storageLocation = storageLocation ?? throw new ArgumentNullException(nameof(storageLocation));
+        _folderOpener = folderOpener ?? throw new ArgumentNullException(nameof(folderOpener));
     }
 
     /// <inheritdoc />
@@ -33,41 +41,50 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
         var currentSession = session;
         var revealPasswords = false;
         var suppressSelectionRefresh = false;
+        var currentStatusMessage = string.Empty;
 
         Application.Init();
 
         try
         {
             var top = Application.Top;
+            var chromeScheme = CreateChromeScheme();
+            var accentScheme = CreateAccentScheme();
+            var focusScheme = CreateFocusScheme();
+            top.ColorScheme = chromeScheme;
 
-            using var window = new Window("LocalPass")
+            using var window = new Window("LocalPass :: Vault Console")
             {
                 X = 0,
                 Y = 0,
                 Width = Dim.Fill(),
-                Height = Dim.Fill(1)
+                Height = Dim.Fill(1),
+                ColorScheme = chromeScheme
             };
 
             var summaryLabel = new Label(string.Empty)
             {
                 X = 0,
                 Y = 0,
-                Width = Dim.Fill()
+                Width = Dim.Fill(),
+                ColorScheme = accentScheme
             };
 
             var statusLabel = new Label(string.Empty)
             {
                 X = 0,
                 Y = 1,
-                Width = Dim.Fill()
+                Width = Dim.Fill(),
+                ColorScheme = focusScheme
             };
 
-            var listFrame = new FrameView("Secrets")
+            var listFrame = new FrameView("Secret Index")
             {
                 X = 0,
                 Y = 3,
                 Width = Dim.Percent(38),
-                Height = Dim.Fill()
+                Height = Dim.Fill(),
+                ColorScheme = chromeScheme
             };
 
             using var listView = new ListView()
@@ -76,15 +93,17 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 Y = 0,
                 Width = Dim.Fill(),
                 Height = Dim.Fill(),
-                CanFocus = true
+                CanFocus = true,
+                ColorScheme = focusScheme
             };
 
-            var detailsFrame = new FrameView("Details")
+            var detailsFrame = new FrameView("Payload Inspect")
             {
                 X = Pos.Right(listFrame),
                 Y = 3,
                 Width = Dim.Fill(),
-                Height = Dim.Fill()
+                Height = Dim.Fill(),
+                ColorScheme = chromeScheme
             };
 
             using var detailsView = new TextView()
@@ -95,7 +114,8 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 Height = Dim.Fill(),
                 ReadOnly = true,
                 WordWrap = true,
-                CanFocus = false
+                CanFocus = false,
+                ColorScheme = accentScheme
             };
 
             listFrame.Add(listView);
@@ -105,6 +125,8 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
             void RefreshUi(string statusMessage)
             {
+                currentStatusMessage = statusMessage;
+
                 var items = currentSession.Vault.Entries
                     .Select((entry, index) => $"[{index + 1}] {entry.Source.Value} | {entry.Login.Value}")
                     .ToList();
@@ -129,10 +151,10 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
                 var selectedSecret = GetSelectedSecret(currentSession.Vault, listView.SelectedItem);
                 summaryLabel.Text = BuildSummary(currentSession.Vault, selectedSecret);
-                statusLabel.Text = statusMessage;
+                statusLabel.Text = FormatStatus(statusMessage);
                 detailsFrame.Title = selectedSecret is null
-                    ? "Details"
-                    : $"Details: {selectedSecret.Source.Value}";
+                    ? "Payload Inspect"
+                    : $"Payload :: {selectedSecret.Source.Value}";
                 detailsView.Text = BuildDetails(selectedSecret, revealPasswords);
             }
 
@@ -263,6 +285,25 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 }
             }
 
+            void OpenStorageDirectory()
+            {
+                try
+                {
+                    var storageDirectoryPath = _storageLocation.GetStorageDirectoryPath();
+                    _folderOpener.OpenDirectory(storageDirectoryPath);
+                    RefreshUi($"Opened storage directory: {storageDirectoryPath}");
+                }
+                catch (Exception exception) when (
+                    exception is ArgumentException
+                    or DirectoryNotFoundException
+                    or InvalidOperationException
+                    or System.ComponentModel.Win32Exception)
+                {
+                    MessageBox.ErrorQuery("Open folder failed", exception.Message, "OK");
+                    RefreshUi($"Open folder failed: {exception.Message}");
+                }
+            }
+
             listView.SelectedItemChanged += _ =>
             {
                 if (suppressSelectionRefresh)
@@ -270,7 +311,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                     return;
                 }
 
-                RefreshUi(statusLabel.Text?.ToString() ?? string.Empty);
+                RefreshUi(currentStatusMessage);
             };
             listView.OpenSelectedItem += _ => EditSecret();
 
@@ -278,13 +319,17 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 new StatusItem(Key.N, "~N~ New", () => AddSecret()),
                 new StatusItem(Key.E, "~E~ Edit", () => EditSecret()),
                 new StatusItem(Key.D, "~D~ Delete", () => DeleteSecret()),
+                new StatusItem(Key.O, "~O~ Files", () => OpenStorageDirectory()),
                 new StatusItem(Key.P, "~P~ Reveal", () => TogglePasswordVisibility()),
                 new StatusItem(Key.R, "~R~ Master", () => ChangeMasterPassword()),
                 new StatusItem(Key.Esc, "~Esc~ Exit", () => Application.RequestStop())
-            ]);
+            ])
+            {
+                ColorScheme = chromeScheme
+            };
 
             top.Add(statusBar);
-            RefreshUi("N new  E edit  D delete  P reveal  R master password  Esc exit");
+            RefreshUi("N new  E edit  D delete  O files  P reveal  R master key  Esc exit");
 
             using var registration = cancellationToken.Register(() => Application.RequestStop());
             Application.Run();
@@ -308,28 +353,30 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             ? "none"
             : $"{selectedSecret.Source.Value} / {selectedSecret.Login.Value}";
 
-        return $"Secrets: {vault.Count}  Updated: {vault.UpdatedUtc:yyyy-MM-dd HH:mm:ss} UTC  Selected: {selectedText}";
+        return $"VAULT {vault.Count:000}  LAST WRITE {vault.UpdatedUtc:yyyy-MM-dd HH:mm:ss} UTC  TARGET {selectedText}";
     }
 
     private static string BuildDetails(SecretRecord? secret, bool revealPasswords)
     {
         if (secret is null)
         {
-            return "No secrets stored yet.\n\nPress N to create the first record.";
+            return "No secrets indexed.\n\nPress N to create the first record.";
         }
 
         var builder = new StringBuilder();
-        _ = builder.AppendLine("Source:   " + secret.Source.Value);
-        _ = builder.AppendLine("Login:    " + secret.Login.Value);
+        _ = builder.AppendLine("SOURCE    " + secret.Source.Value);
+        _ = builder.AppendLine("LOGIN     " + secret.Login.Value);
         _ = builder.AppendLine(
-            "Password: " + (revealPasswords ? secret.Password.Value : BuildMaskedPassword(secret.Password.Value)));
-        _ = builder.AppendLine("Notes:    " + (secret.Notes.HasValue ? secret.Notes.Value : "(none)"));
-        _ = builder.AppendLine("Created:  " + secret.CreatedUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC");
-        _ = builder.AppendLine("Updated:  " + secret.UpdatedUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC");
-        _ = builder.AppendLine("Id:       " + secret.Id);
+            "PASSWORD  " + (revealPasswords ? secret.Password.Value : BuildMaskedPassword(secret.Password.Value)));
+        _ = builder.AppendLine("NOTES     " + (secret.Notes.HasValue ? secret.Notes.Value : "(none)"));
+        _ = builder.AppendLine("CREATED   " + secret.CreatedUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC");
+        _ = builder.AppendLine("UPDATED   " + secret.UpdatedUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC");
+        _ = builder.AppendLine("RECORD ID " + secret.Id);
 
         return builder.ToString();
     }
+
+    private static string FormatStatus(string statusMessage) => "[ READY ] " + statusMessage;
 
     private static string BuildMaskedPassword(string password)
         => $"{new string('*', Math.Clamp(password.Length, 8, 16))} ({password.Length} chars hidden)";
@@ -367,42 +414,56 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             Text = existingSecret?.Notes.Value ?? string.Empty
         };
 
-        using var dialog = new Dialog(existingSecret is null ? "New secret" : "Edit secret", 80, 20);
+        sourceField.ColorScheme = CreateFocusScheme();
+        loginField.ColorScheme = CreateFocusScheme();
+        passwordField.ColorScheme = CreateFocusScheme();
+        notesView.ColorScheme = CreateAccentScheme();
+
+        using var dialog = new Dialog(existingSecret is null ? "Inject Secret" : "Patch Secret", 80, 20)
+        {
+            ColorScheme = CreateChromeScheme()
+        };
         dialog.Add(
             new Label("Source or service")
             {
                 X = 1,
-                Y = 1
+                Y = 1,
+                ColorScheme = CreateAccentScheme()
             },
             sourceField,
             new Label("Login")
             {
                 X = 1,
-                Y = 4
+                Y = 4,
+                ColorScheme = CreateAccentScheme()
             },
             loginField,
             new Label("Password")
             {
                 X = 1,
-                Y = 7
+                Y = 7,
+                ColorScheme = CreateAccentScheme()
             },
             passwordField,
             new Label("Notes")
             {
                 X = 1,
-                Y = 10
+                Y = 10,
+                ColorScheme = CreateAccentScheme()
             },
             notesView);
 
         using var saveButton = new Button("Save")
         {
             X = 18,
-            Y = 16
+            Y = 16,
+            ColorScheme = CreateFocusScheme()
         };
         using var cancelButton = new Button("Cancel")
         {
             X = 32,
-            Y = 16
+            Y = 16,
+            ColorScheme = CreateChromeScheme()
         };
 
         saveButton.Clicked += () =>
@@ -457,36 +518,47 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             Secret = true
         };
 
-        using var dialog = new Dialog("Change master password", 80, 14);
+        passwordField.ColorScheme = CreateFocusScheme();
+        confirmationField.ColorScheme = CreateFocusScheme();
+
+        using var dialog = new Dialog("Rotate Master Key", 80, 14)
+        {
+            ColorScheme = CreateChromeScheme()
+        };
         dialog.Add(
             new Label("New master password")
             {
                 X = 1,
-                Y = 1
+                Y = 1,
+                ColorScheme = CreateAccentScheme()
             },
             passwordField,
             new Label("Confirm master password")
             {
                 X = 1,
-                Y = 4
+                Y = 4,
+                ColorScheme = CreateAccentScheme()
             },
             confirmationField,
             new Label("16+ chars, uppercase, lowercase, digit, symbol, no whitespace")
             {
                 X = 1,
                 Y = 8,
-                Width = Dim.Fill(2)
+                Width = Dim.Fill(2),
+                ColorScheme = CreateAccentScheme()
             });
 
         using var saveButton = new Button("Save")
         {
             X = 18,
-            Y = 10
+            Y = 10,
+            ColorScheme = CreateFocusScheme()
         };
         using var cancelButton = new Button("Cancel")
         {
             X = 32,
-            Y = 10
+            Y = 10,
+            ColorScheme = CreateChromeScheme()
         };
 
         saveButton.Clicked += () =>
@@ -526,7 +598,39 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
     private static string ReadText(TextView field)
         => field.Text?.ToString() ?? string.Empty;
 
+    private static ColorScheme CreateAccentScheme()
+        => new()
+        {
+            Normal = Terminal.Gui.Attribute.Make(Color.Green, Color.Black),
+            Focus = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            HotNormal = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            HotFocus = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
+        };
+
+    private static ColorScheme CreateChromeScheme()
+        => new()
+        {
+            Normal = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            Focus = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            HotNormal = Terminal.Gui.Attribute.Make(Color.Green, Color.Black),
+            HotFocus = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
+        };
+
+    private static ColorScheme CreateFocusScheme()
+        => new()
+        {
+            Normal = Terminal.Gui.Attribute.Make(Color.Green, Color.Black),
+            Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.BrightGreen),
+            HotNormal = Terminal.Gui.Attribute.Make(Color.BrightGreen, Color.Black),
+            HotFocus = Terminal.Gui.Attribute.Make(Color.Black, Color.BrightGreen),
+            Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
+        };
+
     private readonly IClock _clock;
+    private readonly IFolderOpener _folderOpener;
+    private readonly ISecretVaultStorageLocation _storageLocation;
     private readonly ISecretVaultStore _vaultStore;
 
     private readonly record struct SecretDialogResult(
