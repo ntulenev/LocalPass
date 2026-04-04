@@ -14,15 +14,20 @@ public sealed class SecretVault
     /// <param name="entries">Secret entries stored in the vault.</param>
     /// <param name="createdUtc">Creation timestamp in UTC.</param>
     /// <param name="updatedUtc">Last update timestamp in UTC.</param>
+    /// <param name="documentVersion">User-visible vault document revision.</param>
     public SecretVault(
         IEnumerable<SecretRecord> entries,
         DateTimeOffset createdUtc,
-        DateTimeOffset updatedUtc)
+        DateTimeOffset updatedUtc,
+        int documentVersion = 1)
     {
         ArgumentNullException.ThrowIfNull(entries);
 
         CreatedUtc = EnsureUtc(createdUtc, "Vault created timestamp must be in UTC.");
         UpdatedUtc = EnsureUtc(updatedUtc, "Vault updated timestamp must be in UTC.");
+        DocumentVersion = documentVersion > 0
+            ? documentVersion
+            : throw new InvalidDataException("Vault document version must be greater than zero.");
         if (UpdatedUtc < CreatedUtc)
         {
             throw new InvalidDataException(
@@ -48,6 +53,11 @@ public sealed class SecretVault
     public DateTimeOffset UpdatedUtc { get; }
 
     /// <summary>
+    /// Gets the user-visible vault document revision.
+    /// </summary>
+    public int DocumentVersion { get; }
+
+    /// <summary>
     /// Gets the immutable vault entries.
     /// </summary>
     public ReadOnlyCollection<SecretRecord> Entries { get; }
@@ -68,7 +78,7 @@ public sealed class SecretVault
     /// <param name="timestampUtc">Creation timestamp in UTC.</param>
     /// <returns>An empty immutable vault.</returns>
     public static SecretVault CreateEmpty(DateTimeOffset timestampUtc)
-        => new([], EnsureUtc(timestampUtc, "Vault created timestamp must be in UTC."), timestampUtc);
+        => new([], EnsureUtc(timestampUtc, "Vault created timestamp must be in UTC."), timestampUtc, 1);
 
     /// <summary>
     /// Gets the secret at the supplied index.
@@ -100,7 +110,11 @@ public sealed class SecretVault
 
         var normalizedUpdatedUtc = EnsureUtc(updatedUtc, "Vault updated timestamp must be in UTC.");
         var remainingEntries = Entries.Where(existing => existing.Id != record.Id);
-        return new SecretVault([.. remainingEntries, record], CreatedUtc, normalizedUpdatedUtc);
+        return new SecretVault(
+            [.. remainingEntries, record],
+            CreatedUtc,
+            normalizedUpdatedUtc,
+            GetNextDocumentVersion());
     }
 
     /// <summary>
@@ -120,8 +134,11 @@ public sealed class SecretVault
         return new SecretVault(
             remainingEntries,
             CreatedUtc,
-            EnsureUtc(updatedUtc, "Vault updated timestamp must be in UTC."));
+            EnsureUtc(updatedUtc, "Vault updated timestamp must be in UTC."),
+            GetNextDocumentVersion());
     }
+
+    private int GetNextDocumentVersion() => checked(DocumentVersion + 1);
 
     private static DateTimeOffset EnsureUtc(DateTimeOffset value, string message)
         => value.Offset == TimeSpan.Zero

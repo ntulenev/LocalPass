@@ -25,6 +25,7 @@ public sealed class SecretVaultTests
         updatedVault.Entries.Select(item => item.Source.Value)
             .Should()
             .ContainInOrder("Alpha", "Zeta");
+        updatedVault.DocumentVersion.Should().Be(3);
     }
 
     [Fact(DisplayName = "WithoutEntry should throw when the identifier does not exist")]
@@ -41,5 +42,19 @@ public sealed class SecretVaultTests
         // Assert
         var exception = action.Should().Throw<InvalidDataException>().Which;
         exception.Message.Should().Be("Secret record was not found.");
+    }
+
+    [Fact(DisplayName = "CreateEmpty should start document versioning at one")]
+    [Trait("Category", "Unit")]
+    public void CreateEmptyShouldStartDocumentVersioningAtOne()
+    {
+        // Arrange
+        var createdUtc = new DateTimeOffset(2026, 4, 3, 10, 0, 0, TimeSpan.Zero);
+
+        // Act
+        var vault = SecretVault.CreateEmpty(createdUtc);
+
+        // Assert
+        vault.DocumentVersion.Should().Be(1);
     }
 }

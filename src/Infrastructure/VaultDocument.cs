@@ -18,6 +18,11 @@ public sealed class VaultDocument
     public DateTimeOffset UpdatedUtc { get; set; }
 
     /// <summary>
+    /// Gets or sets the user-visible vault document revision.
+    /// </summary>
+    public int DocumentVersion { get; set; } = 1;
+
+    /// <summary>
     /// Gets or sets the stored secret entries.
     /// </summary>
     public List<SecretRecordDocument> Entries { get; set; } = [];
@@ -35,6 +40,7 @@ public sealed class VaultDocument
         {
             CreatedUtc = vault.CreatedUtc,
             UpdatedUtc = vault.UpdatedUtc,
+            DocumentVersion = vault.DocumentVersion,
             Entries = [.. vault.Entries.Select(SecretRecordDocument.FromModel)]
         };
     }
@@ -47,5 +53,6 @@ public sealed class VaultDocument
         => new(
             Entries.Select(entry => entry.ToModel()),
             CreatedUtc,
-            UpdatedUtc);
+            UpdatedUtc,
+            DocumentVersion);
 }

@@ -38,6 +38,7 @@ public sealed class FileSecretVaultStoreTests : IDisposable
         reopenedSession.Vault.GetSecret(0).Source.Value.Should().Be("GitHub");
         reopenedSession.Vault.GetSecret(0).Login.Value.Should().Be("user@example.com");
         reopenedSession.Vault.GetSecret(0).Password.Value.Should().Be("Password123!");
+        reopenedSession.Vault.DocumentVersion.Should().Be(2);
     }
 
     [Fact(DisplayName = "Save should create a snapshot when replacing an existing vault file")]

@@ -67,5 +67,21 @@ public sealed class SecretVaultAdditionalTests
         updatedVault.GetSecret(0).Password.Value.Should().Be("Password123!Updated");
         updatedVault.GetSecret(0).Notes.Value.Should().Be("rotated");
         updatedVault.UpdatedUtc.Should().Be(updatedUtc);
+        updatedVault.DocumentVersion.Should().Be(2);
+    }
+
+    [Fact(DisplayName = "Constructor should reject non-positive document versions")]
+    [Trait("Category", "Unit")]
+    public void ConstructorShouldRejectNonPositiveDocumentVersions()
+    {
+        // Arrange
+        var timestamp = new DateTimeOffset(2026, 4, 3, 10, 0, 0, TimeSpan.Zero);
+
+        // Act
+        var action = () => new SecretVault([], timestamp, timestamp, 0);
+
+        // Assert
+        var exception = action.Should().Throw<InvalidDataException>().Which;
+        exception.Message.Should().Be("Vault document version must be greater than zero.");
     }
 }
