@@ -37,7 +37,7 @@ public static class LocalPassViewFormatter
             ? "none"
             : $"{selectedSecret.Source.Value} / {selectedSecret.Login.Value}";
 
-        return $"VAULT {vault.Count:000}  LAST WRITE {vault.UpdatedUtc:yyyy-MM-dd HH:mm:ss} UTC  TARGET {selectedText}";
+        return $"VAULT {vault.Count:000}  LAST WRITE {vault.UpdatedUtc:yyyy-MM-dd HH:mm} UTC  DOC V{vault.DocumentVersion:000}  TARGET {selectedText}";
     }
 
     /// <summary>

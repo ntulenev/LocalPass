@@ -38,7 +38,7 @@ public sealed class LocalPassViewFormatterTests
         var summary = LocalPassViewFormatter.BuildSummary(vault, secret);
 
         // Assert
-        summary.Should().Be("VAULT 001  LAST WRITE 2026-04-03 12:00:00 UTC  TARGET GitHub / user@example.com");
+        summary.Should().Be("VAULT 001  LAST WRITE 2026-04-03 12:00 UTC  DOC V001  TARGET GitHub / user@example.com");
     }
 
     [Fact(DisplayName = "BuildSummary should show none when nothing is selected")]
@@ -53,7 +53,7 @@ public sealed class LocalPassViewFormatterTests
         var summary = LocalPassViewFormatter.BuildSummary(vault, null);
 
         // Assert
-        summary.Should().Be("VAULT 000  LAST WRITE 2026-04-03 12:00:00 UTC  TARGET none");
+        summary.Should().Be("VAULT 000  LAST WRITE 2026-04-03 12:00 UTC  DOC V001  TARGET none");
     }
 
     [Fact(DisplayName = "BuildDetails should instruct the user to create a record when the vault is empty")]
