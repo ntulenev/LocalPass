@@ -34,7 +34,7 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
     /// </summary>
     /// <param name="clock">Clock used for vault timestamps and snapshot naming.</param>
     public FileSecretVaultStore(IClock clock)
-        : this(GetDefaultStorageDirectory(), clock)
+        : this(GetDefaultStorageDirectoryPath(), clock)
     {
     }
 
@@ -54,6 +54,26 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
         _vaultFilePath = Path.Combine(_storageDirectory, VaultFileName);
         _snapshotDirectoryPath = Path.Combine(_storageDirectory, SnapshotDirectoryName);
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    }
+
+    /// <summary>
+    /// Resolves the storage directory from configuration and falls back to the default LocalPass location.
+    /// Relative paths are resolved against the application base directory.
+    /// </summary>
+    /// <param name="storageDirectory">Configured storage directory override.</param>
+    /// <returns>The absolute storage directory path.</returns>
+    public static string ResolveStorageDirectory(string? storageDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(storageDirectory))
+        {
+            return GetDefaultStorageDirectoryPath();
+        }
+
+        var expandedStorageDirectory = Environment.ExpandEnvironmentVariables(storageDirectory.Trim());
+
+        return Path.IsPathRooted(expandedStorageDirectory)
+            ? Path.GetFullPath(expandedStorageDirectory)
+            : Path.GetFullPath(expandedStorageDirectory, AppContext.BaseDirectory);
     }
 
     /// <inheritdoc />
@@ -281,7 +301,7 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
             HashAlgorithmName.SHA512,
             KeySize);
 
-    private static string GetDefaultStorageDirectory()
+    private static string GetDefaultStorageDirectoryPath()
         => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "LocalPass");

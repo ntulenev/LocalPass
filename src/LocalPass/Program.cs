@@ -14,10 +14,15 @@ using var cancellationTokenSource = new CancellationTokenSource();
 var builder = Host.CreateDefaultBuilder()
     .ConfigureServices((hostContext, services) =>
     {
-        _ = hostContext;
         _ = services.AddSingleton<IApplication, Application>();
         _ = services.AddSingleton<IClock, DefaultClock>();
-        _ = services.AddSingleton<FileSecretVaultStore>();
+        _ = services.AddSingleton<FileSecretVaultStore>(serviceProvider =>
+        {
+            var clock = serviceProvider.GetRequiredService<IClock>();
+            var storageDirectoryPath = StorageDirectoryConfiguration.ResolveStorageDirectoryPath(
+                hostContext.Configuration);
+            return new FileSecretVaultStore(storageDirectoryPath, clock);
+        });
         _ = services.AddSingleton<ISecretVaultStore>(serviceProvider =>
             serviceProvider.GetRequiredService<FileSecretVaultStore>());
         _ = services.AddSingleton<ISecretVaultStorageLocation>(serviceProvider =>

@@ -53,6 +53,19 @@ By default, the encrypted vault is stored in:
 %LOCALAPPDATA%\LocalPass
 ```
 
+You can override the storage directory through `appsettings.json`:
+
+```json
+{
+  "LocalPass": {
+    "StorageDirectoryPath": "%USERPROFILE%\\Dropbox\\LocalPass"
+  }
+}
+```
+
+If the value is empty, LocalPass keeps using the default `%LOCALAPPDATA%\\LocalPass` location.
+Environment variables are expanded automatically.
+
 Important files:
 
 - `vault.localpass`: current encrypted vault.
