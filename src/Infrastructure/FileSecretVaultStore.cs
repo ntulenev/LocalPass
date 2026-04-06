@@ -2,11 +2,8 @@ using Abstractions;
 
 using Models;
 
-using System.Globalization;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace Infrastructure;
 
@@ -15,26 +12,12 @@ namespace Infrastructure;
 /// </summary>
 public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorageLocation
 {
-    private const int CurrentVersion = 1;
-    private const int KeySize = 32;
-    private const int NonceSize = 12;
-    private const int SaltSize = 32;
-    private const int TagSize = 16;
-    private const int Pbkdf2Iterations = 600000;
-    private const string VaultFileName = "vault.localpass";
-    private const string SnapshotDirectoryName = "snapshots";
-    private const string MagicHeader = "LocalPass";
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        WriteIndented = true
-    };
-
     /// <summary>
     /// Initializes a store that uses the default LocalPass storage location.
     /// </summary>
     /// <param name="clock">Clock used for vault timestamps and snapshot naming.</param>
     public FileSecretVaultStore(IClock clock)
-        : this(GetDefaultStorageDirectoryPath(), clock)
+        : this(VaultStorageDirectoryResolver.GetDefaultStorageDirectoryPath(), clock)
     {
     }
 
@@ -45,39 +28,12 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
     /// <param name="clock">Clock used for vault timestamps and snapshot naming.</param>
     public FileSecretVaultStore(string storageDirectory, IClock clock)
     {
-        if (string.IsNullOrWhiteSpace(storageDirectory))
-        {
-            throw new ArgumentException("Storage directory is required.", nameof(storageDirectory));
-        }
-
-        _storageDirectory = Path.GetFullPath(storageDirectory);
-        _vaultFilePath = Path.Combine(_storageDirectory, VaultFileName);
-        _snapshotDirectoryPath = Path.Combine(_storageDirectory, SnapshotDirectoryName);
+        _storageLayout = new VaultStorageLayout(storageDirectory, clock);
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
-    /// <summary>
-    /// Resolves the storage directory from configuration and falls back to the default LocalPass location.
-    /// Relative paths are resolved against the application base directory.
-    /// </summary>
-    /// <param name="storageDirectory">Configured storage directory override.</param>
-    /// <returns>The absolute storage directory path.</returns>
-    public static string ResolveStorageDirectory(string? storageDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(storageDirectory))
-        {
-            return GetDefaultStorageDirectoryPath();
-        }
-
-        var expandedStorageDirectory = Environment.ExpandEnvironmentVariables(storageDirectory.Trim());
-
-        return Path.IsPathRooted(expandedStorageDirectory)
-            ? Path.GetFullPath(expandedStorageDirectory)
-            : Path.GetFullPath(expandedStorageDirectory, AppContext.BaseDirectory);
-    }
-
     /// <inheritdoc />
-    public bool Exists() => File.Exists(_vaultFilePath);
+    public bool Exists() => File.Exists(_storageLayout.VaultFilePath);
 
     /// <inheritdoc />
     public SecretVaultSession CreateNew(MasterPassword masterPassword)
@@ -93,24 +49,14 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
     {
         ArgumentNullException.ThrowIfNull(masterPassword);
 
-        if (!File.Exists(_vaultFilePath))
+        if (!File.Exists(_storageLayout.VaultFilePath))
         {
-            throw new FileNotFoundException("Vault file was not found.", _vaultFilePath);
+            throw new FileNotFoundException("Vault file was not found.", _storageLayout.VaultFilePath);
         }
 
-        var json = File.ReadAllText(_vaultFilePath, Encoding.UTF8);
-        EncryptedVaultFileDocument document;
-        try
-        {
-            document = JsonSerializer.Deserialize<EncryptedVaultFileDocument>(json, SerializerOptions)
-                ?? throw new InvalidDataException("Vault file is invalid.");
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException("Vault file is invalid.", exception);
-        }
-
-        var vault = DecryptVault(document, masterPassword);
+        var json = File.ReadAllText(_storageLayout.VaultFilePath, Encoding.UTF8);
+        var document = VaultEnvelopeSerializer.Deserialize(json);
+        var vault = VaultCryptographyService.DecryptVault(document, masterPassword);
         return new SecretVaultSession(vault, masterPassword);
     }
 
@@ -119,25 +65,25 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        Directory.CreateDirectory(_storageDirectory);
-        Directory.CreateDirectory(_snapshotDirectoryPath);
+        Directory.CreateDirectory(_storageLayout.StorageDirectoryPath);
+        Directory.CreateDirectory(_storageLayout.SnapshotDirectoryPath);
 
-        var document = EncryptVault(session.Vault, session.MasterPassword);
-        var json = JsonSerializer.Serialize(document, SerializerOptions);
-        var temporaryPath = Path.Combine(_storageDirectory, $"{Guid.NewGuid():N}.tmp");
+        var document = VaultCryptographyService.EncryptVault(session.Vault, session.MasterPassword);
+        var json = VaultEnvelopeSerializer.Serialize(document);
+        var temporaryPath = _storageLayout.BuildTemporaryFilePath();
 
         try
         {
             WriteAllText(temporaryPath, json);
 
-            if (File.Exists(_vaultFilePath))
+            if (File.Exists(_storageLayout.VaultFilePath))
             {
-                var snapshotPath = BuildSnapshotPath();
-                File.Replace(temporaryPath, _vaultFilePath, snapshotPath, ignoreMetadataErrors: true);
+                var snapshotPath = _storageLayout.BuildSnapshotPath();
+                File.Replace(temporaryPath, _storageLayout.VaultFilePath, snapshotPath, ignoreMetadataErrors: true);
             }
             else
             {
-                File.Move(temporaryPath, _vaultFilePath);
+                File.Move(temporaryPath, _storageLayout.VaultFilePath);
             }
         }
         finally
@@ -163,148 +109,7 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
     }
 
     /// <inheritdoc />
-    public string GetStorageDirectoryPath() => _storageDirectory;
-
-    private static EncryptedVaultFileDocument EncryptVault(
-        SecretVault vault,
-        MasterPassword masterPassword)
-    {
-        ArgumentNullException.ThrowIfNull(vault);
-        ArgumentNullException.ThrowIfNull(masterPassword);
-
-        var payload = VaultDocument.FromModel(vault);
-        var payloadJson = JsonSerializer.Serialize(payload, SerializerOptions);
-        var plaintext = Encoding.UTF8.GetBytes(payloadJson);
-        var salt = RandomNumberGenerator.GetBytes(SaltSize);
-        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
-        var key = DeriveKey(masterPassword, salt, Pbkdf2Iterations);
-        var cipherText = new byte[plaintext.Length];
-        var tag = new byte[TagSize];
-        var associatedData = BuildAssociatedData(Pbkdf2Iterations);
-
-        try
-        {
-            using var aes = new AesGcm(key, TagSize);
-            aes.Encrypt(nonce, plaintext, cipherText, tag, associatedData);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(plaintext);
-            CryptographicOperations.ZeroMemory(key);
-        }
-
-        return new EncryptedVaultFileDocument
-        {
-            Version = CurrentVersion,
-            Kdf = "PBKDF2-SHA512",
-            Encryption = "AES-256-GCM",
-            Iterations = Pbkdf2Iterations,
-            Salt = Convert.ToBase64String(salt),
-            Nonce = Convert.ToBase64String(nonce),
-            Tag = Convert.ToBase64String(tag),
-            CipherText = Convert.ToBase64String(cipherText)
-        };
-    }
-
-    private static SecretVault DecryptVault(
-        EncryptedVaultFileDocument document,
-        MasterPassword masterPassword)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(masterPassword);
-
-        ValidateEnvelope(document);
-
-        byte[] salt;
-        byte[] nonce;
-        byte[] tag;
-        byte[] cipherText;
-
-        try
-        {
-            salt = Convert.FromBase64String(document.Salt);
-            nonce = Convert.FromBase64String(document.Nonce);
-            tag = Convert.FromBase64String(document.Tag);
-            cipherText = Convert.FromBase64String(document.CipherText);
-        }
-        catch (FormatException exception)
-        {
-            throw new InvalidDataException("Vault file is invalid.", exception);
-        }
-
-        var key = DeriveKey(masterPassword, salt, document.Iterations);
-        var plaintext = new byte[cipherText.Length];
-        var associatedData = BuildAssociatedData(document.Iterations);
-
-        try
-        {
-            try
-            {
-                using var aes = new AesGcm(key, TagSize);
-                aes.Decrypt(nonce, cipherText, tag, plaintext, associatedData);
-            }
-            catch (CryptographicException exception)
-            {
-                throw new InvalidDataException(
-                    "The provided master password is incorrect or the vault file is corrupted.",
-                    exception);
-            }
-
-            var payloadJson = Encoding.UTF8.GetString(plaintext);
-            VaultDocument payload;
-            try
-            {
-                payload = JsonSerializer.Deserialize<VaultDocument>(payloadJson, SerializerOptions)
-                    ?? throw new InvalidDataException("Vault payload is invalid.");
-            }
-            catch (JsonException exception)
-            {
-                throw new InvalidDataException("Vault payload is invalid.", exception);
-            }
-
-            return payload.ToModel();
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(key);
-            CryptographicOperations.ZeroMemory(plaintext);
-        }
-    }
-
-    private static void ValidateEnvelope(EncryptedVaultFileDocument document)
-    {
-        if (document.Version != CurrentVersion)
-        {
-            throw new InvalidDataException("Vault file version is not supported.");
-        }
-
-        if (!string.Equals(document.Kdf, "PBKDF2-SHA512", StringComparison.Ordinal) ||
-            !string.Equals(document.Encryption, "AES-256-GCM", StringComparison.Ordinal) ||
-            string.IsNullOrWhiteSpace(document.Salt) ||
-            string.IsNullOrWhiteSpace(document.Nonce) ||
-            string.IsNullOrWhiteSpace(document.Tag) ||
-            string.IsNullOrWhiteSpace(document.CipherText) ||
-            document.Iterations <= 0)
-        {
-            throw new InvalidDataException("Vault file is invalid.");
-        }
-    }
-
-    private static byte[] BuildAssociatedData(int iterations)
-        => Encoding.UTF8.GetBytes($"{MagicHeader}:{CurrentVersion}:{iterations}");
-
-    private static byte[] DeriveKey(MasterPassword masterPassword, byte[] salt, int iterations)
-        => Rfc2898DeriveBytes.Pbkdf2(
-            masterPassword.Value,
-            salt,
-            iterations,
-            HashAlgorithmName.SHA512,
-            KeySize);
-
-    private static string GetDefaultStorageDirectoryPath()
-        => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LocalPass");
+    public string GetStorageDirectoryPath() => _storageLayout.StorageDirectoryPath;
 
     private static void WriteAllText(string path, string content)
     {
@@ -323,14 +128,6 @@ public sealed class FileSecretVaultStore : ISecretVaultStore, ISecretVaultStorag
         stream.Flush(flushToDisk: true);
     }
 
-    private string BuildSnapshotPath()
-    {
-        var timestamp = _clock.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
-        return Path.Combine(_snapshotDirectoryPath, $"vault-{timestamp}-{Guid.NewGuid():N}.localpass");
-    }
-
     private readonly IClock _clock;
-    private readonly string _snapshotDirectoryPath;
-    private readonly string _storageDirectory;
-    private readonly string _vaultFilePath;
+    private readonly VaultStorageLayout _storageLayout;
 }

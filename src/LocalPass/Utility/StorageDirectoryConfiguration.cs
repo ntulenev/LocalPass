@@ -23,6 +23,6 @@ public static class StorageDirectoryConfiguration
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        return FileSecretVaultStore.ResolveStorageDirectory(configuration[StorageDirectoryPathKey]);
+        return VaultStorageDirectoryResolver.ResolveStorageDirectory(configuration[StorageDirectoryPathKey]);
     }
 }
