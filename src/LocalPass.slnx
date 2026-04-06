@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="Abstractions/Abstractions.csproj" />
+  <Project Path="Application.Tests/Application.Tests.csproj" />
+  <Project Path="Application/Application.csproj" />
   <Project Path="Infrastructure.Tests/Infrastructure.Tests.csproj" />
   <Project Path="Infrastructure/Infrastructure.csproj" />
   <Project Path="LocalPass.Tests/LocalPass.Tests.csproj" />

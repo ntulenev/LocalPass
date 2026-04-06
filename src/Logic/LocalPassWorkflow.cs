@@ -6,9 +6,11 @@ namespace Logic;
 /// Coordinates vault access and UI execution for LocalPass.
 /// </summary>
 /// <param name="vaultAccessCoordinator">Coordinator used for unlock and first-run flows.</param>
+/// <param name="consoleSessionFactory">Factory that wraps unlocked sessions for the console UI.</param>
 /// <param name="consoleRenderer">Renderer used to display the interactive vault UI.</param>
 public sealed class LocalPassWorkflow(
     IVaultAccessCoordinator vaultAccessCoordinator,
+    ILocalPassConsoleSessionFactory consoleSessionFactory,
     ISecretVaultConsoleRenderer consoleRenderer) : ILocalPassWorkflow
 {
     /// <summary>
@@ -23,11 +25,14 @@ public sealed class LocalPassWorkflow(
             return;
         }
 
-        await _consoleRenderer.RunAsync(session, cancellationToken).ConfigureAwait(false);
+        var consoleSession = _consoleSessionFactory.Create(session);
+        await _consoleRenderer.RunAsync(consoleSession, cancellationToken).ConfigureAwait(false);
     }
 
     private readonly IVaultAccessCoordinator _vaultAccessCoordinator = vaultAccessCoordinator
         ?? throw new ArgumentNullException(nameof(vaultAccessCoordinator));
+    private readonly ILocalPassConsoleSessionFactory _consoleSessionFactory = consoleSessionFactory
+        ?? throw new ArgumentNullException(nameof(consoleSessionFactory));
     private readonly ISecretVaultConsoleRenderer _consoleRenderer = consoleRenderer
         ?? throw new ArgumentNullException(nameof(consoleRenderer));
 }

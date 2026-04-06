@@ -2,6 +2,8 @@ using Abstractions;
 
 using Infrastructure;
 
+using LocalPass.Application;
+
 using LocalPass.Utility;
 
 using Logic;
@@ -14,7 +16,7 @@ using var cancellationTokenSource = new CancellationTokenSource();
 var builder = Host.CreateDefaultBuilder()
     .ConfigureServices((hostContext, services) =>
     {
-        _ = services.AddSingleton<IApplication, Application>();
+        _ = services.AddSingleton<IApplication, LocalPassApplication>();
         _ = services.AddSingleton<IClock, DefaultClock>();
         _ = services.AddSingleton<FileSecretVaultStore>(serviceProvider =>
         {
@@ -30,7 +32,7 @@ var builder = Host.CreateDefaultBuilder()
         _ = services.AddSingleton<KeyboardLayoutProvider>();
         _ = services.AddSingleton<ISecretInputPrompter, ConsoleSecretInputPrompter>();
         _ = services.AddSingleton<IVaultAccessScreen, TerminalVaultAccessScreen>();
-        _ = services.AddSingleton<ILocalPassSessionOperations, LocalPassSessionOperations>();
+        _ = services.AddSingleton<ILocalPassConsoleSessionFactory, LocalPassConsoleSessionFactory>();
         _ = services.AddSingleton<IFolderOpener, SystemFolderOpener>();
         _ = services.AddSingleton<IVaultAccessCoordinator, TerminalVaultAccessCoordinator>();
         _ = services.AddSingleton<ISecretVaultConsoleRenderer, LocalPassConsoleRenderer>();

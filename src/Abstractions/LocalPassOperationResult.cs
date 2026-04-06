@@ -1,37 +1,31 @@
-namespace Models;
+using Models;
+
+namespace Abstractions;
 
 /// <summary>
-/// Represents the result of a persisted LocalPass session operation.
+/// Represents the result of a persisted LocalPass application operation.
 /// </summary>
 public sealed class LocalPassOperationResult
 {
     /// <summary>
     /// Initializes a new operation result.
     /// </summary>
-    /// <param name="session">Updated unlocked session.</param>
+    /// <param name="vault">Updated vault snapshot.</param>
     /// <param name="statusMessage">Status message for the UI.</param>
     /// <param name="preferredSelectionId">Optional secret identifier to select after refresh.</param>
     public LocalPassOperationResult(
-        SecretVaultSession session,
+        SecretVault vault,
         string statusMessage,
         Guid? preferredSelectionId = null)
     {
-        Session = session ?? throw new ArgumentNullException(nameof(session));
-        StatusMessage = string.IsNullOrWhiteSpace(statusMessage)
-            ? throw new ArgumentException("Status message is required.", nameof(statusMessage))
-            : statusMessage;
+        CurrentState = new LocalPassViewState(vault, statusMessage);
         PreferredSelectionId = preferredSelectionId;
     }
 
     /// <summary>
-    /// Gets the updated unlocked session.
+    /// Gets the current view state after the operation.
     /// </summary>
-    public SecretVaultSession Session { get; }
-
-    /// <summary>
-    /// Gets the status message for the UI.
-    /// </summary>
-    public string StatusMessage { get; }
+    public LocalPassViewState CurrentState { get; }
 
     /// <summary>
     /// Gets the optional preferred selection identifier.

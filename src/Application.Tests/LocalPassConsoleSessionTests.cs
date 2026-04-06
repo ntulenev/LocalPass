@@ -2,19 +2,22 @@ using Abstractions;
 
 using FluentAssertions;
 
+using LocalPass.Application;
+
 using Models;
 
 using Moq;
 
-namespace Infrastructure.Tests;
+using Xunit;
 
-public sealed class LocalPassSessionOperationsTests
+namespace Application.Tests;
+
+public sealed class LocalPassConsoleSessionTests
 {
-    [Fact(DisplayName = "AddSecret should create a record, persist the session, and prefer the new selection")]
+    [Fact(DisplayName = "AddSecret should create a record, persist the session, and update the current view state")]
     [Trait("Category", "Unit")]
-    public void AddSecretShouldCreateARecordPersistTheSessionAndPreferTheNewSelection()
+    public void AddSecretShouldCreateARecordPersistTheSessionAndUpdateTheCurrentViewState()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var session = CreateSession(timestamp);
         var input = SecretEditorInput.Create("GitHub", "user@example.com", "Password123!", "primary");
@@ -30,34 +33,30 @@ public sealed class LocalPassSessionOperationsTests
                 capturedSession = value;
                 return value;
             });
-        var operations = new LocalPassSessionOperations(
+        var appSession = new LocalPassConsoleSession(
+            session,
             store.Object,
             clock,
             storageLocation.Object,
             folderOpener.Object);
 
-        // Act
-        var result = operations.AddSecret(session, input);
+        var result = appSession.AddSecret(input);
 
-        // Assert
         capturedSession.Should().NotBeNull();
         capturedSession!.Vault.Count.Should().Be(1);
-        capturedSession.Vault.GetSecret(0).Source.Value.Should().Be("GitHub");
-        capturedSession.Vault.GetSecret(0).Login.Value.Should().Be("user@example.com");
-        capturedSession.Vault.GetSecret(0).Password.Value.Should().Be("Password123!");
-        capturedSession.Vault.GetSecret(0).Notes.Value.Should().Be("primary");
-        result.Session.Should().BeSameAs(capturedSession);
-        result.StatusMessage.Should().Be("Saved GitHub.");
+        appSession.CurrentVault.Count.Should().Be(1);
+        appSession.CurrentStatusMessage.Should().Be("Saved GitHub.");
+        result.CurrentState.Vault.Should().BeSameAs(capturedSession.Vault);
+        result.CurrentState.StatusMessage.Should().Be("Saved GitHub.");
         result.PreferredSelectionId.Should().Be(capturedSession.Vault.GetSecret(0).Id);
         store.Verify(item => item.Save(It.IsAny<SecretVaultSession>()), Times.Once);
         store.VerifyNoOtherCalls();
     }
 
-    [Fact(DisplayName = "EditSecret should update the existing record and keep its identifier selected")]
+    [Fact(DisplayName = "EditSecret should update the selected record and keep its identifier selected")]
     [Trait("Category", "Unit")]
-    public void EditSecretShouldUpdateTheExistingRecordAndKeepItsIdentifierSelected()
+    public void EditSecretShouldUpdateTheSelectedRecordAndKeepItsIdentifierSelected()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var updatedTimestamp = timestamp.AddMinutes(30);
         var existingRecord = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, timestamp);
@@ -75,16 +74,15 @@ public sealed class LocalPassSessionOperationsTests
                 capturedSession = value;
                 return value;
             });
-        var operations = new LocalPassSessionOperations(
+        var appSession = new LocalPassConsoleSession(
+            session,
             store.Object,
             clock,
             storageLocation.Object,
             folderOpener.Object);
 
-        // Act
-        var result = operations.EditSecret(session, existingRecord, input);
+        var result = appSession.EditSecret(existingRecord.Id, input);
 
-        // Assert
         capturedSession.Should().NotBeNull();
         var updatedRecord = capturedSession!.Vault.GetSecret(0);
         updatedRecord.Id.Should().Be(existingRecord.Id);
@@ -92,7 +90,8 @@ public sealed class LocalPassSessionOperationsTests
         updatedRecord.Password.Value.Should().Be("NewPassword123!");
         updatedRecord.Notes.Value.Should().Be("rotated");
         updatedRecord.UpdatedUtc.Should().Be(updatedTimestamp);
-        result.StatusMessage.Should().Be("Updated GitHub.");
+        appSession.CurrentStatusMessage.Should().Be("Updated GitHub.");
+        result.CurrentState.StatusMessage.Should().Be("Updated GitHub.");
         result.PreferredSelectionId.Should().Be(existingRecord.Id);
         store.Verify(item => item.Save(It.IsAny<SecretVaultSession>()), Times.Once);
         store.VerifyNoOtherCalls();
@@ -102,7 +101,6 @@ public sealed class LocalPassSessionOperationsTests
     [Trait("Category", "Unit")]
     public void DeleteSecretShouldRemoveTheRecordAndPersistTheUpdatedVault()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var existingRecord = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, timestamp);
         var session = CreateSession(timestamp, existingRecord);
@@ -118,19 +116,19 @@ public sealed class LocalPassSessionOperationsTests
                 capturedSession = value;
                 return value;
             });
-        var operations = new LocalPassSessionOperations(
+        var appSession = new LocalPassConsoleSession(
+            session,
             store.Object,
             clock,
             storageLocation.Object,
             folderOpener.Object);
 
-        // Act
-        var result = operations.DeleteSecret(session, existingRecord);
+        var result = appSession.DeleteSecret(existingRecord.Id);
 
-        // Assert
         capturedSession.Should().NotBeNull();
         capturedSession!.Vault.HasEntries.Should().BeFalse();
-        result.StatusMessage.Should().Be("Secret deleted.");
+        appSession.CurrentStatusMessage.Should().Be("Secret deleted.");
+        result.CurrentState.StatusMessage.Should().Be("Secret deleted.");
         result.PreferredSelectionId.Should().BeNull();
         store.Verify(item => item.Save(It.IsAny<SecretVaultSession>()), Times.Once);
         store.VerifyNoOtherCalls();
@@ -140,7 +138,6 @@ public sealed class LocalPassSessionOperationsTests
     [Trait("Category", "Unit")]
     public void ChangeMasterPasswordShouldDelegateReEncryptionToTheVaultStore()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var session = CreateSession(timestamp);
         var newMasterPassword = new MasterPassword("AnotherStrongPassword1!");
@@ -152,18 +149,18 @@ public sealed class LocalPassSessionOperationsTests
         _ = store
             .Setup(item => item.ChangeMasterPassword(session, newMasterPassword))
             .Returns(updatedSession);
-        var operations = new LocalPassSessionOperations(
+        var appSession = new LocalPassConsoleSession(
+            session,
             store.Object,
             clock,
             storageLocation.Object,
             folderOpener.Object);
 
-        // Act
-        var result = operations.ChangeMasterPassword(session, newMasterPassword);
+        var result = appSession.ChangeMasterPassword(newMasterPassword);
 
-        // Assert
-        result.Session.Should().BeSameAs(updatedSession);
-        result.StatusMessage.Should().Be("Master password updated and vault re-encrypted.");
+        appSession.CurrentVault.Should().BeSameAs(updatedSession.Vault);
+        appSession.CurrentStatusMessage.Should().Be("Master password updated and vault re-encrypted.");
+        result.CurrentState.StatusMessage.Should().Be("Master password updated and vault re-encrypted.");
         result.PreferredSelectionId.Should().BeNull();
         store.Verify(item => item.ChangeMasterPassword(session, newMasterPassword), Times.Once);
         store.VerifyNoOtherCalls();
@@ -173,7 +170,6 @@ public sealed class LocalPassSessionOperationsTests
     [Trait("Category", "Unit")]
     public void OpenStorageDirectoryShouldOpenTheReportedStoragePath()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var storagePath = Path.Combine(Path.GetTempPath(), "LocalPass.Storage");
         var clock = new StubClock(timestamp);
@@ -185,20 +181,41 @@ public sealed class LocalPassSessionOperationsTests
             .Returns(storagePath);
         folderOpener
             .Setup(item => item.OpenDirectory(storagePath));
-        var operations = new LocalPassSessionOperations(
+        var appSession = new LocalPassConsoleSession(
+            CreateSession(timestamp),
             store.Object,
             clock,
             storageLocation.Object,
             folderOpener.Object);
 
-        // Act
-        var result = operations.OpenStorageDirectory();
+        var result = appSession.OpenStorageDirectory();
 
-        // Assert
         result.Should().Be($"Opened storage directory: {storagePath}");
+        appSession.CurrentStatusMessage.Should().Be(result);
         storageLocation.Verify(item => item.GetStorageDirectoryPath(), Times.Once);
         folderOpener.Verify(item => item.OpenDirectory(storagePath), Times.Once);
         store.VerifyNoOtherCalls();
+    }
+
+    [Fact(DisplayName = "Factory should create a session for unlocked vault state")]
+    [Trait("Category", "Unit")]
+    public void FactoryShouldCreateASessionForUnlockedVaultState()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
+        var session = CreateSession(timestamp);
+        var store = new Mock<ISecretVaultStore>(MockBehavior.Strict);
+        var clock = new StubClock(timestamp);
+        var storageLocation = new Mock<ISecretVaultStorageLocation>(MockBehavior.Strict);
+        var folderOpener = new Mock<IFolderOpener>(MockBehavior.Strict);
+        var factory = new LocalPassConsoleSessionFactory(
+            store.Object,
+            clock,
+            storageLocation.Object,
+            folderOpener.Object);
+
+        var result = factory.Create(session);
+
+        result.Should().BeOfType<LocalPassConsoleSession>();
     }
 
     private static SecretVaultSession CreateSession(DateTimeOffset timestamp, params SecretRecord[] entries)

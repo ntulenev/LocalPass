@@ -15,10 +15,11 @@ public sealed class LocalPassWorkflowTests
     public void CtorShouldThrowWhenVaultAccessCoordinatorIsNull()
     {
         // Arrange
+        var sessionFactory = new Mock<ILocalPassConsoleSessionFactory>(MockBehavior.Strict);
         var renderer = new Mock<ISecretVaultConsoleRenderer>(MockBehavior.Strict);
 
         // Act
-        var action = () => new LocalPassWorkflow(null!, renderer.Object);
+        var action = () => new LocalPassWorkflow(null!, sessionFactory.Object, renderer.Object);
 
         // Assert
         var exception = action.Should().Throw<ArgumentNullException>().Which;
@@ -32,11 +33,12 @@ public sealed class LocalPassWorkflowTests
         // Arrange
         var cancellationToken = new CancellationTokenSource().Token;
         var coordinator = new Mock<IVaultAccessCoordinator>(MockBehavior.Strict);
+        var sessionFactory = new Mock<ILocalPassConsoleSessionFactory>(MockBehavior.Strict);
         var renderer = new Mock<ISecretVaultConsoleRenderer>(MockBehavior.Strict);
         _ = coordinator
             .Setup(item => item.OpenAsync(cancellationToken))
             .ReturnsAsync((SecretVaultSession?)null);
-        var workflow = new LocalPassWorkflow(coordinator.Object, renderer.Object);
+        var workflow = new LocalPassWorkflow(coordinator.Object, sessionFactory.Object, renderer.Object);
 
         // Act
         await workflow.RunAsync(cancellationToken);
@@ -56,20 +58,26 @@ public sealed class LocalPassWorkflowTests
             SecretVault.CreateEmpty(DateTimeOffset.UtcNow),
             new MasterPassword("StrongMasterPassword1!"));
         var coordinator = new Mock<IVaultAccessCoordinator>(MockBehavior.Strict);
+        var sessionFactory = new Mock<ILocalPassConsoleSessionFactory>(MockBehavior.Strict);
+        var appSession = new Mock<ILocalPassConsoleSession>(MockBehavior.Strict);
         var renderer = new Mock<ISecretVaultConsoleRenderer>(MockBehavior.Strict);
         _ = coordinator
             .Setup(item => item.OpenAsync(cancellationToken))
             .ReturnsAsync(session);
+        _ = sessionFactory
+            .Setup(item => item.Create(session))
+            .Returns(appSession.Object);
         _ = renderer
-            .Setup(item => item.RunAsync(session, cancellationToken))
+            .Setup(item => item.RunAsync(appSession.Object, cancellationToken))
             .Returns(Task.CompletedTask);
-        var workflow = new LocalPassWorkflow(coordinator.Object, renderer.Object);
+        var workflow = new LocalPassWorkflow(coordinator.Object, sessionFactory.Object, renderer.Object);
 
         // Act
         await workflow.RunAsync(cancellationToken);
 
         // Assert
         coordinator.Verify(item => item.OpenAsync(cancellationToken), Times.Once);
-        renderer.Verify(item => item.RunAsync(session, cancellationToken), Times.Once);
+        sessionFactory.Verify(item => item.Create(session), Times.Once);
+        renderer.Verify(item => item.RunAsync(appSession.Object, cancellationToken), Times.Once);
     }
 }

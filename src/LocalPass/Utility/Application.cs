@@ -6,7 +6,7 @@ namespace LocalPass.Utility;
 /// Application entry point wrapper for LocalPass.
 /// </summary>
 /// <param name="workflow">Workflow that drives the application runtime.</param>
-public sealed class Application(ILocalPassWorkflow workflow) : IApplication
+public sealed class LocalPassApplication(ILocalPassWorkflow workflow) : IApplication
 {
     /// <summary>
     /// Runs the application workflow.

@@ -15,7 +15,7 @@ public sealed class ApplicationTests
     public void CtorShouldThrowWhenWorkflowIsNull()
     {
         // Arrange
-        var action = () => new Application(null!);
+        var action = () => new LocalPassApplication(null!);
 
         // Act
         var exception = action.Should().Throw<ArgumentNullException>().Which;
@@ -34,7 +34,7 @@ public sealed class ApplicationTests
         _ = workflow
             .Setup(item => item.RunAsync(cancellationToken))
             .Returns(Task.CompletedTask);
-        var application = new Application(workflow.Object);
+        var application = new LocalPassApplication(workflow.Object);
 
         // Act
         await application.RunAsync(cancellationToken);

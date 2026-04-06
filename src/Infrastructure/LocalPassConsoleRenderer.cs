@@ -13,24 +13,14 @@ namespace Infrastructure;
 /// </summary>
 public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 {
-    /// <summary>
-    /// Initializes a new console renderer.
-    /// </summary>
-    /// <param name="sessionOperations">Session-level LocalPass operations.</param>
-    public LocalPassConsoleRenderer(ILocalPassSessionOperations sessionOperations)
-    {
-        _sessionOperations = sessionOperations ?? throw new ArgumentNullException(nameof(sessionOperations));
-    }
-
     /// <inheritdoc />
-    public Task RunAsync(SecretVaultSession session, CancellationToken cancellationToken)
+    public Task RunAsync(ILocalPassConsoleSession session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        var currentSession = session;
         var revealPasswords = false;
         var suppressSelectionRefresh = false;
-        var currentStatusMessage = string.Empty;
+        var currentStatusMessage = session.CurrentStatusMessage;
 
         Application.Init();
 
@@ -116,7 +106,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             {
                 currentStatusMessage = statusMessage;
 
-                var items = LocalPassViewFormatter.BuildListItems(currentSession.Vault);
+                var items = LocalPassViewFormatter.BuildListItems(session.CurrentVault);
                 var previousSelection = listView.SelectedItem;
                 var nextSelection = items.Count == 0
                     ? 0
@@ -136,8 +126,8 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                     }
                 }
 
-                var selectedSecret = GetSelectedSecret(currentSession.Vault, listView.SelectedItem);
-                summaryLabel.Text = LocalPassViewFormatter.BuildSummary(currentSession.Vault, selectedSecret);
+                var selectedSecret = GetSelectedSecret(session.CurrentVault, listView.SelectedItem);
+                summaryLabel.Text = LocalPassViewFormatter.BuildSummary(session.CurrentVault, selectedSecret);
                 statusLabel.Text = LocalPassViewFormatter.FormatStatus(statusMessage);
                 detailsFrame.Title = selectedSecret is null
                     ? "Payload Inspect"
@@ -147,7 +137,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
             void SetSelection(Guid id)
             {
-                var index = currentSession.Vault.FindIndex(id);
+                var index = session.CurrentVault.FindIndex(id);
                 if (index >= 0)
                 {
                     listView.SelectedItem = index;
@@ -156,12 +146,11 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
             void ApplyResult(LocalPassOperationResult result)
             {
-                currentSession = result.Session;
-                RefreshUi(result.StatusMessage);
+                RefreshUi(result.CurrentState.StatusMessage);
                 if (result.PreferredSelectionId.HasValue)
                 {
                     SetSelection(result.PreferredSelectionId.Value);
-                    RefreshUi(result.StatusMessage);
+                    RefreshUi(result.CurrentState.StatusMessage);
                 }
             }
 
@@ -175,7 +164,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
                 try
                 {
-                    ApplyResult(_sessionOperations.AddSecret(currentSession, result));
+                    ApplyResult(session.AddSecret(result));
                 }
                 catch (Exception exception) when (
                     exception is IOException
@@ -189,7 +178,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
             void EditSecret()
             {
-                var selectedSecret = GetSelectedSecret(currentSession.Vault, listView.SelectedItem);
+                var selectedSecret = GetSelectedSecret(session.CurrentVault, listView.SelectedItem);
                 if (selectedSecret is null)
                 {
                     RefreshUi("No secret selected.");
@@ -204,7 +193,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
                 try
                 {
-                    ApplyResult(_sessionOperations.EditSecret(currentSession, selectedSecret, result));
+                    ApplyResult(session.EditSecret(selectedSecret.Id, result));
                 }
                 catch (Exception exception) when (
                     exception is IOException
@@ -218,7 +207,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
             void DeleteSecret()
             {
-                var selectedSecret = GetSelectedSecret(currentSession.Vault, listView.SelectedItem);
+                var selectedSecret = GetSelectedSecret(session.CurrentVault, listView.SelectedItem);
                 if (selectedSecret is null)
                 {
                     RefreshUi("No secret selected.");
@@ -238,7 +227,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
                 try
                 {
-                    ApplyResult(_sessionOperations.DeleteSecret(currentSession, selectedSecret));
+                    ApplyResult(session.DeleteSecret(selectedSecret.Id));
                 }
                 catch (Exception exception) when (
                     exception is IOException
@@ -266,7 +255,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
                 try
                 {
-                    ApplyResult(_sessionOperations.ChangeMasterPassword(currentSession, newMasterPassword));
+                    ApplyResult(session.ChangeMasterPassword(newMasterPassword));
                 }
                 catch (Exception exception) when (
                     exception is IOException
@@ -282,7 +271,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             {
                 try
                 {
-                    RefreshUi(_sessionOperations.OpenStorageDirectory());
+                    RefreshUi(session.OpenStorageDirectory());
                 }
                 catch (Exception exception) when (
                     exception is ArgumentException
@@ -320,7 +309,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             };
 
             top.Add(statusBar);
-            RefreshUi("N new  E edit  D delete  O files  P reveal  R master key  Esc exit");
+            RefreshUi(session.CurrentStatusMessage);
 
             using var registration = cancellationToken.Register(() => Application.RequestStop());
             Application.Run();
@@ -578,6 +567,4 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             HotFocus = Terminal.Gui.Attribute.Make(Color.Black, Color.BrightGreen),
             Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
         };
-
-    private readonly ILocalPassSessionOperations _sessionOperations;
 }
