@@ -16,9 +16,9 @@ public static class LocalPassConsoleLayout
         => new("LocalPass :: Vault Console")
         {
             X = 0,
-            Y = 0,
+            Y = 1,
             Width = Dim.Fill(),
-            Height = Dim.Fill(1),
+            Height = Dim.Fill(2),
             ColorScheme = chromeScheme
         };
 

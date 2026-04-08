@@ -21,7 +21,9 @@ public sealed class LocalPassConsoleControllerTests
             session.Object,
             _ => null,
             () => null,
-            _ => false);
+            _ => false,
+            () => StrongPasswordGenerator.Generate(),
+            _ => true);
 
         var state = controller.BuildScreenState(previousSelection: 10);
 
@@ -47,7 +49,9 @@ public sealed class LocalPassConsoleControllerTests
             session.Object,
             _ => input,
             () => null,
-            _ => false);
+            _ => false,
+            () => StrongPasswordGenerator.Generate(),
+            _ => true);
 
         var result = controller.AddSecret();
 
@@ -66,7 +70,9 @@ public sealed class LocalPassConsoleControllerTests
             session.Object,
             _ => null,
             () => null,
-            _ => false);
+            _ => false,
+            () => StrongPasswordGenerator.Generate(),
+            _ => true);
 
         var result = controller.DeleteSecret(0);
         var state = controller.BuildScreenState(previousSelection: 0);
@@ -86,7 +92,9 @@ public sealed class LocalPassConsoleControllerTests
             session.Object,
             _ => null,
             () => null,
-            _ => false);
+            _ => false,
+            () => StrongPasswordGenerator.Generate(),
+            _ => true);
 
         var result = controller.TogglePasswordVisibility();
         var state = controller.BuildScreenState(previousSelection: 0);
@@ -108,7 +116,9 @@ public sealed class LocalPassConsoleControllerTests
             session.Object,
             _ => null,
             () => null,
-            _ => false);
+            _ => false,
+            () => StrongPasswordGenerator.Generate(),
+            _ => true);
 
         var result = controller.OpenStorageDirectory();
         var state = controller.BuildScreenState(previousSelection: 0);
@@ -117,6 +127,56 @@ public sealed class LocalPassConsoleControllerTests
         result.ErrorDialogTitle.Should().Be("Open folder failed");
         result.ErrorDialogMessage.Should().Be("Cannot open folder.");
         state.StatusText.Should().Be("[ READY ] Open folder failed: Cannot open folder.");
+    }
+
+    [Fact(DisplayName = "GenerateAndCopyStrongPassword should refresh after copying a generated password")]
+    [Trait("Category", "Unit")]
+    public void GenerateAndCopyStrongPasswordShouldRefreshAfterCopyingAGeneratedPassword()
+    {
+        const string generatedPassword = "Str0ng!Generated?Pwd";
+        var session = BuildSessionWithState([], "Ready.");
+        string? clipboardValue = null;
+        var controller = new LocalPassConsoleController(
+            session.Object,
+            _ => null,
+            () => null,
+            _ => false,
+            () => generatedPassword,
+            value =>
+            {
+                clipboardValue = value;
+                return true;
+            });
+
+        var result = controller.GenerateAndCopyStrongPassword();
+        var state = controller.BuildScreenState(previousSelection: 0);
+
+        result.ShouldRefresh.Should().BeTrue();
+        result.ErrorDialogTitle.Should().BeNull();
+        clipboardValue.Should().Be(generatedPassword);
+        state.StatusText.Should().Be("[ READY ] Generated strong password and copied it to the clipboard.");
+    }
+
+    [Fact(DisplayName = "GenerateAndCopyStrongPassword should return an error when clipboard copy fails")]
+    [Trait("Category", "Unit")]
+    public void GenerateAndCopyStrongPasswordShouldReturnAnErrorWhenClipboardCopyFails()
+    {
+        var session = BuildSessionWithState([], "Ready.");
+        var controller = new LocalPassConsoleController(
+            session.Object,
+            _ => null,
+            () => null,
+            _ => false,
+            () => "Str0ng!Generated?Pwd",
+            _ => false);
+
+        var result = controller.GenerateAndCopyStrongPassword();
+        var state = controller.BuildScreenState(previousSelection: 0);
+
+        result.ShouldRefresh.Should().BeTrue();
+        result.ErrorDialogTitle.Should().Be("Clipboard copy failed");
+        result.ErrorDialogMessage.Should().Be("The generated password could not be copied to the clipboard.");
+        state.StatusText.Should().Be("[ READY ] Clipboard copy failed: The generated password could not be copied to the clipboard.");
     }
 
     private static Mock<ILocalPassConsoleSession> BuildSessionWithState(

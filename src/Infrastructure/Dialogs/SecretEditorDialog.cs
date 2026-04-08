@@ -60,13 +60,24 @@ public static class SecretEditorDialog
         {
             X = 1,
             Y = 8,
-            Width = Dim.Fill(2),
+            Width = Dim.Fill(22),
             Secret = true
+        };
+        var showPasswordCheckBox = new CheckBox("Show password", false)
+        {
+            X = 1,
+            Y = 10
+        };
+        using var generatePasswordButton = new Button("Generate")
+        {
+            X = Pos.Right(showPasswordCheckBox) + 2,
+            Y = 10,
+            ColorScheme = LocalPassConsoleTheme.CreateFocusScheme()
         };
         var notesView = new TextView()
         {
             X = 1,
-            Y = 11,
+            Y = 13,
             Width = Dim.Fill(2),
             Height = 4,
             Text = existingSecret?.Notes.Value ?? string.Empty
@@ -75,9 +86,18 @@ public static class SecretEditorDialog
         sourceField.ColorScheme = LocalPassConsoleTheme.CreateFocusScheme();
         loginField.ColorScheme = LocalPassConsoleTheme.CreateFocusScheme();
         passwordField.ColorScheme = LocalPassConsoleTheme.CreateFocusScheme();
+        showPasswordCheckBox.ColorScheme = LocalPassConsoleTheme.CreateAccentScheme();
         notesView.ColorScheme = LocalPassConsoleTheme.CreateAccentScheme();
 
-        using var dialog = new Dialog(GetTitle(existingSecret), 80, 20)
+        passwordField.Secret = !showPasswordCheckBox.Checked;
+        showPasswordCheckBox.Toggled += _ => passwordField.Secret = !showPasswordCheckBox.Checked;
+        generatePasswordButton.Clicked += () =>
+        {
+            passwordField.Text = StrongPasswordGenerator.Generate();
+            passwordField.SetFocus();
+        };
+
+        using var dialog = new Dialog(GetTitle(existingSecret), 80, 22)
         {
             ColorScheme = LocalPassConsoleTheme.CreateChromeScheme()
         };
@@ -106,21 +126,23 @@ public static class SecretEditorDialog
             new Label("Notes")
             {
                 X = 1,
-                Y = 10,
+                Y = 12,
                 ColorScheme = LocalPassConsoleTheme.CreateAccentScheme()
             },
+            showPasswordCheckBox,
+            generatePasswordButton,
             notesView);
 
         using var saveButton = new Button("Save")
         {
             X = 18,
-            Y = 16,
+            Y = 18,
             ColorScheme = LocalPassConsoleTheme.CreateFocusScheme()
         };
         using var cancelButton = new Button("Cancel")
         {
             X = 32,
-            Y = 16,
+            Y = 18,
             ColorScheme = LocalPassConsoleTheme.CreateChromeScheme()
         };
 

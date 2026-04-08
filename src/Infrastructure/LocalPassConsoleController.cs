@@ -12,6 +12,8 @@ namespace Infrastructure;
 /// </summary>
 public sealed class LocalPassConsoleController
 {
+    private readonly Func<string, bool> _copyToClipboard;
+    private readonly Func<string> _generateStrongPassword;
     private readonly Func<MasterPassword?> _showMasterPasswordDialog;
     private readonly Func<SecretRecord, bool> _confirmDelete;
     private readonly Func<SecretRecord?, SecretEditorInput?> _showSecretDialog;
@@ -24,17 +26,24 @@ public sealed class LocalPassConsoleController
     /// <param name="showSecretDialog">Dialog callback for creating or editing secrets.</param>
     /// <param name="showMasterPasswordDialog">Dialog callback for changing the master password.</param>
     /// <param name="confirmDelete">Confirmation callback used before deleting a secret.</param>
+    /// <param name="generateStrongPassword">Strong password generator used by UI commands.</param>
+    /// <param name="copyToClipboard">Clipboard writer used by UI commands.</param>
     public LocalPassConsoleController(
         ILocalPassConsoleSession session,
         Func<SecretRecord?, SecretEditorInput?> showSecretDialog,
         Func<MasterPassword?> showMasterPasswordDialog,
-        Func<SecretRecord, bool> confirmDelete)
+        Func<SecretRecord, bool> confirmDelete,
+        Func<string> generateStrongPassword,
+        Func<string, bool> copyToClipboard)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _showSecretDialog = showSecretDialog ?? throw new ArgumentNullException(nameof(showSecretDialog));
         _showMasterPasswordDialog = showMasterPasswordDialog
             ?? throw new ArgumentNullException(nameof(showMasterPasswordDialog));
         _confirmDelete = confirmDelete ?? throw new ArgumentNullException(nameof(confirmDelete));
+        _generateStrongPassword = generateStrongPassword
+            ?? throw new ArgumentNullException(nameof(generateStrongPassword));
+        _copyToClipboard = copyToClipboard ?? throw new ArgumentNullException(nameof(copyToClipboard));
         _currentStatusMessage = session.CurrentStatusMessage;
     }
 
@@ -184,6 +193,27 @@ public sealed class LocalPassConsoleController
         {
             return HandleError("Password change failed", exception.Message);
         }
+    }
+
+    /// <summary>
+    /// Generates a strong password and copies it to the clipboard.
+    /// </summary>
+    /// <returns>The command result.</returns>
+    public LocalPassConsoleCommandResult GenerateAndCopyStrongPassword()
+    {
+        var generatedPassword = _generateStrongPassword();
+        if (string.IsNullOrWhiteSpace(generatedPassword))
+        {
+            return HandleError("Password generation failed", "Generated password was empty.");
+        }
+
+        if (!_copyToClipboard(generatedPassword))
+        {
+            return HandleError("Clipboard copy failed", "The generated password could not be copied to the clipboard.");
+        }
+
+        _currentStatusMessage = "Generated strong password and copied it to the clipboard.";
+        return LocalPassConsoleCommandResult.Refresh();
     }
 
     /// <summary>

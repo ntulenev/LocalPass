@@ -16,9 +16,9 @@ public sealed class LocalPassConsoleLayoutTests
 
         window.Title.ToString().Should().Be("LocalPass :: Vault Console");
         window.X.ToString().Should().Be(Pos.At(0).ToString());
-        window.Y.ToString().Should().Be(Pos.At(0).ToString());
+        window.Y.ToString().Should().Be(Pos.At(1).ToString());
         window.Width.ToString().Should().Be(Dim.Fill().ToString());
-        window.Height.ToString().Should().Be(Dim.Fill(1).ToString());
+        window.Height.ToString().Should().Be(Dim.Fill(2).ToString());
         window.ColorScheme.Should().BeSameAs(chromeScheme);
     }
 

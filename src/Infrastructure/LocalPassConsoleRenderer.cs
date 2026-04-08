@@ -45,7 +45,9 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 session,
                 SecretEditorDialog.Prompt,
                 MasterPasswordDialog.Prompt,
-                ConfirmDelete);
+                ConfirmDelete,
+                () => StrongPasswordGenerator.Generate(),
+                TryCopyToClipboard);
 
             void RefreshUi(Guid? preferredSelectionId = null)
             {
@@ -96,8 +98,28 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             };
             listView.OpenSelectedItem += _ => ApplyCommand(controller.EditSecret(listView.SelectedItem));
 
+            using var menuBar = new MenuBar([
+                new MenuBarItem("_Commands", [
+                    new MenuItem("_New Secret", string.Empty, () => ApplyCommand(controller.AddSecret()), null, null, Key.N),
+                    new MenuItem("_Edit Secret", string.Empty, () => ApplyCommand(controller.EditSecret(listView.SelectedItem)), null, null, Key.E),
+                    new MenuItem("_Delete Secret", string.Empty, () => ApplyCommand(controller.DeleteSecret(listView.SelectedItem)), null, null, Key.D),
+                    new MenuItem("_Generate && Copy Password", string.Empty, () => ApplyCommand(controller.GenerateAndCopyStrongPassword()), null, null, Key.G),
+                    new MenuItem("_Reveal Passwords", string.Empty, () => ApplyCommand(controller.TogglePasswordVisibility()), null, null, Key.P),
+                    new MenuItem("_Change Master Password", string.Empty, () => ApplyCommand(controller.ChangeMasterPassword()), null, null, Key.R),
+                    new MenuItem("_Open Storage Folder", string.Empty, () => ApplyCommand(controller.OpenStorageDirectory()), null, null, Key.O),
+                    new MenuItem("_Exit", string.Empty, () => Application.RequestStop(), null, null, Key.Esc)
+                ])
+                {
+                    Title = "_Commands"
+                }
+            ])
+            {
+                ColorScheme = chromeScheme
+            };
+
             using var statusBar = new StatusBar([
                 new StatusItem(Key.N, "~N~ New", () => ApplyCommand(controller.AddSecret())),
+                new StatusItem(Key.G, "~G~ Generate", () => ApplyCommand(controller.GenerateAndCopyStrongPassword())),
                 new StatusItem(Key.E, "~E~ Edit", () => ApplyCommand(controller.EditSecret(listView.SelectedItem))),
                 new StatusItem(Key.D, "~D~ Delete", () => ApplyCommand(controller.DeleteSecret(listView.SelectedItem))),
                 new StatusItem(Key.O, "~O~ Files", () => ApplyCommand(controller.OpenStorageDirectory())),
@@ -109,6 +131,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 ColorScheme = chromeScheme
             };
 
+            top.Add(menuBar);
             top.Add(statusBar);
             RefreshUi();
 
@@ -129,4 +152,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             $"Delete {secret.Source.Value} / {secret.Login.Value}?",
             "Delete",
             "Cancel") == 0;
+
+    private static bool TryCopyToClipboard(string text)
+        => Clipboard.TrySetClipboardData(text);
 }
