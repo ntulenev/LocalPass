@@ -72,6 +72,37 @@ public sealed class TerminalVaultAccessCoordinatorTests
         screen.Verify(item => item.ShowCreateVaultPrompt(), Times.Exactly(2));
     }
 
+    [Fact(DisplayName = "OpenAsync should retry vault creation when the store throws an IO error")]
+    [Trait("Category", "Unit")]
+    public async Task OpenAsyncShouldRetryVaultCreationWhenTheStoreThrowsAnIoError()
+    {
+        var session = CreateSession();
+        var store = new Mock<ISecretVaultStore>(MockBehavior.Strict);
+        var prompter = new Mock<ISecretInputPrompter>(MockBehavior.Strict);
+        var screen = new Mock<IVaultAccessScreen>(MockBehavior.Strict);
+        _ = store.Setup(item => item.Exists()).Returns(false);
+        screen.Setup(item => item.ShowCreateVaultPrompt());
+        _ = prompter.SetupSequence(item => item.ReadSecret("Master password"))
+            .Returns("StrongMasterPassword1!")
+            .Returns("StrongMasterPassword1!");
+        _ = prompter.SetupSequence(item => item.ReadSecret("Confirm password"))
+            .Returns("StrongMasterPassword1!")
+            .Returns("StrongMasterPassword1!");
+        _ = store
+            .SetupSequence(item => item.CreateNew(It.Is<MasterPassword>(value => value.Value == "StrongMasterPassword1!")))
+            .Throws(new IOException("Disk is busy."))
+            .Returns(session);
+        prompter.Setup(item => item.ShowRetry("Disk is busy."));
+        var coordinator = new TerminalVaultAccessCoordinator(store.Object, prompter.Object, screen.Object);
+
+        var result = await coordinator.OpenAsync(CancellationToken.None);
+
+        result.Should().BeSameAs(session);
+        prompter.Verify(item => item.ShowRetry("Disk is busy."), Times.Once);
+        store.Verify(item => item.CreateNew(It.IsAny<MasterPassword>()), Times.Exactly(2));
+        screen.Verify(item => item.ShowCreateVaultPrompt(), Times.Exactly(2));
+    }
+
     [Fact(DisplayName = "OpenAsync should retry unlock after a failed password attempt")]
     [Trait("Category", "Unit")]
     public async Task OpenAsyncShouldRetryUnlockAfterAFailedPasswordAttempt()
@@ -101,6 +132,34 @@ public sealed class TerminalVaultAccessCoordinatorTests
         // Assert
         result.Should().BeSameAs(session);
         prompter.Verify(item => item.ShowRetry("Unlock failed."), Times.Once);
+        store.Verify(item => item.Open(It.IsAny<MasterPassword>()), Times.Exactly(2));
+        screen.Verify(item => item.ShowUnlockPrompt(It.IsAny<int>(), 3), Times.Exactly(2));
+    }
+
+    [Fact(DisplayName = "OpenAsync should retry unlock when the store throws an access error")]
+    [Trait("Category", "Unit")]
+    public async Task OpenAsyncShouldRetryUnlockWhenTheStoreThrowsAnAccessError()
+    {
+        var session = CreateSession();
+        var store = new Mock<ISecretVaultStore>(MockBehavior.Strict);
+        var prompter = new Mock<ISecretInputPrompter>(MockBehavior.Strict);
+        var screen = new Mock<IVaultAccessScreen>(MockBehavior.Strict);
+        _ = store.Setup(item => item.Exists()).Returns(true);
+        screen.Setup(item => item.ShowUnlockPrompt(It.IsAny<int>(), 3));
+        _ = prompter.SetupSequence(item => item.ReadSecret("Master password"))
+            .Returns("StrongMasterPassword1!")
+            .Returns("StrongMasterPassword1!");
+        _ = store
+            .SetupSequence(item => item.Open(It.Is<MasterPassword>(value => value.Value == "StrongMasterPassword1!")))
+            .Throws(new UnauthorizedAccessException("Vault access denied."))
+            .Returns(session);
+        prompter.Setup(item => item.ShowRetry("Vault access denied."));
+        var coordinator = new TerminalVaultAccessCoordinator(store.Object, prompter.Object, screen.Object);
+
+        var result = await coordinator.OpenAsync(CancellationToken.None);
+
+        result.Should().BeSameAs(session);
+        prompter.Verify(item => item.ShowRetry("Vault access denied."), Times.Once);
         store.Verify(item => item.Open(It.IsAny<MasterPassword>()), Times.Exactly(2));
         screen.Verify(item => item.ShowUnlockPrompt(It.IsAny<int>(), 3), Times.Exactly(2));
     }

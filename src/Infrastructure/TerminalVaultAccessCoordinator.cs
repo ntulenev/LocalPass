@@ -66,7 +66,10 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
             {
                 return _vaultStore.CreateNew(new MasterPassword(password));
             }
-            catch (InvalidDataException exception)
+            catch (Exception exception) when (
+                exception is InvalidDataException
+                or IOException
+                or UnauthorizedAccessException)
             {
                 _secretInputPrompter.ShowRetry(exception.Message);
             }
@@ -96,7 +99,10 @@ public sealed class TerminalVaultAccessCoordinator : IVaultAccessCoordinator
             {
                 return _vaultStore.Open(new MasterPassword(password));
             }
-            catch (InvalidDataException exception)
+            catch (Exception exception) when (
+                exception is InvalidDataException
+                or IOException
+                or UnauthorizedAccessException)
             {
                 _secretInputPrompter.ShowRetry(exception.Message);
             }
