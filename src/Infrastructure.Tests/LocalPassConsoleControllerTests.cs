@@ -98,8 +98,43 @@ public sealed class LocalPassConsoleControllerTests
         state.ActiveTab.Should().Be(LocalPassVaultTab.Notes);
         state.DetailsTitle.Should().Be("Secure Note :: Taxes");
         state.DetailsText.Should().Contain("SUMMARY    2025 filing");
-        state.DetailsText.Should().Contain("important");
+        state.DetailsText.Should().NotContain("important");
         state.StatusText.Should().Be("[ READY ] Switched to secure notes.");
+    }
+
+    [Fact(DisplayName = "TogglePasswordVisibility should reveal note content when notes tab is active")]
+    [Trait("Category", "Unit")]
+    public void TogglePasswordVisibilityShouldRevealNoteContentWhenNotesTabIsActive()
+    {
+        var note = SecureNoteRecord.Create("Taxes", "2025 filing", "important", Timestamp);
+        var session = BuildSessionWithState([], [note], "Ready.");
+        var controller = CreateController(session.Object);
+        _ = controller.ToggleActiveTab();
+
+        var result = controller.TogglePasswordVisibility();
+        var state = controller.BuildScreenState();
+
+        result.ShouldRefresh.Should().BeTrue();
+        state.StatusText.Should().Be("[ READY ] Note content is visible.");
+        state.DetailsText.Should().Contain("important");
+    }
+
+    [Fact(DisplayName = "Switching from revealed passwords to notes should keep note content hidden by default")]
+    [Trait("Category", "Unit")]
+    public void SwitchingFromRevealedPasswordsToNotesShouldKeepNoteContentHiddenByDefault()
+    {
+        var secret = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, Timestamp);
+        var note = SecureNoteRecord.Create("Taxes", "2025 filing", "important", Timestamp);
+        var session = BuildSessionWithState([secret], [note], "Ready.");
+        var controller = CreateController(session.Object);
+
+        _ = controller.TogglePasswordVisibility();
+        _ = controller.ToggleActiveTab();
+        var state = controller.BuildScreenState();
+
+        state.ActiveTab.Should().Be(LocalPassVaultTab.Notes);
+        state.DetailsText.Should().NotContain("important");
+        state.DetailsText.Should().Contain("CONTENT    ********* (9 chars hidden)");
     }
 
     [Fact(DisplayName = "AddItem should use the note workflow when notes tab is active")]

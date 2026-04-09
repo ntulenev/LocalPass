@@ -87,8 +87,9 @@ public static class LocalPassViewFormatter
     /// Builds the details view for the selected secure note.
     /// </summary>
     /// <param name="note">Selected secure note, if any.</param>
+    /// <param name="revealContent">Whether note content should be visible.</param>
     /// <returns>The formatted details text.</returns>
-    public static string BuildNoteDetails(SecureNoteRecord? note)
+    public static string BuildNoteDetails(SecureNoteRecord? note, bool revealContent)
     {
         if (note is null)
         {
@@ -98,8 +99,11 @@ public static class LocalPassViewFormatter
         var builder = new StringBuilder();
         _ = builder.AppendLine("TITLE      " + note.Title.Value);
         _ = builder.AppendLine("SUMMARY    " + note.Description.Value);
-        _ = builder.AppendLine("CONTENT");
-        _ = builder.AppendLine(note.Content.Value);
+        _ = builder.AppendLine("CONTENT    " + (revealContent ? "visible" : BuildMaskedNoteContent(note.Content.Value)));
+        if (revealContent)
+        {
+            _ = builder.AppendLine(note.Content.Value);
+        }
         _ = builder.AppendLine();
         _ = builder.AppendLine("CREATED    " + note.CreatedUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " UTC");
         _ = builder.AppendLine("UPDATED    " + note.UpdatedUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " UTC");
@@ -123,8 +127,8 @@ public static class LocalPassViewFormatter
     /// <returns>The frame title.</returns>
     public static string BuildIndexTitle(Abstractions.LocalPassVaultTab activeTab)
         => activeTab == Abstractions.LocalPassVaultTab.Passwords
-            ? "Vault Index :: [Passwords] | Notes  (Tab switch)"
-            : "Vault Index :: Passwords | [Notes]  (Tab switch)";
+            ? "Index :: [Passwords] Notes"
+            : "Index :: Passwords [Notes]";
 
     /// <summary>
     /// Builds a masked password display value.
@@ -133,4 +137,12 @@ public static class LocalPassViewFormatter
     /// <returns>The masked password display string.</returns>
     public static string BuildMaskedPassword(string password)
         => $"{new string('*', Math.Clamp(password?.Length ?? 0, 8, 16))} ({password?.Length ?? 0} chars hidden)";
+
+    /// <summary>
+    /// Builds a masked note content display value.
+    /// </summary>
+    /// <param name="content">Content to mask.</param>
+    /// <returns>The masked content display string.</returns>
+    public static string BuildMaskedNoteContent(string content)
+        => $"{new string('*', Math.Clamp(content?.Length ?? 0, 8, 16))} ({content?.Length ?? 0} chars hidden)";
 }

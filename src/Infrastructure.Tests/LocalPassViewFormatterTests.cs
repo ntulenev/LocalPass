@@ -105,19 +105,33 @@ public sealed class LocalPassViewFormatterTests
         details.Should().Contain($"RECORD ID {secret.Id}");
     }
 
-    [Fact(DisplayName = "BuildNoteDetails should render note content and metadata")]
+    [Fact(DisplayName = "BuildNoteDetails should mask note content when reveal is disabled")]
     [Trait("Category", "Unit")]
-    public void BuildNoteDetailsShouldRenderNoteContentAndMetadata()
+    public void BuildNoteDetailsShouldMaskNoteContentWhenRevealIsDisabled()
     {
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var note = SecureNoteRecord.Create("Taxes", "2025 filing", "line 1\nline 2", timestamp);
 
-        var details = LocalPassViewFormatter.BuildNoteDetails(note);
+        var details = LocalPassViewFormatter.BuildNoteDetails(note, revealContent: false);
 
         details.Should().Contain("TITLE      Taxes");
         details.Should().Contain("SUMMARY    2025 filing");
-        details.Should().Contain("line 1\nline 2");
+        details.Should().Contain("CONTENT    ************* (13 chars hidden)");
+        details.Should().NotContain("line 1\nline 2");
         details.Should().Contain($"NOTE ID    {note.Id}");
+    }
+
+    [Fact(DisplayName = "BuildNoteDetails should render note content when reveal is enabled")]
+    [Trait("Category", "Unit")]
+    public void BuildNoteDetailsShouldRenderNoteContentWhenRevealIsEnabled()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
+        var note = SecureNoteRecord.Create("Taxes", "2025 filing", "line 1\nline 2", timestamp);
+
+        var details = LocalPassViewFormatter.BuildNoteDetails(note, revealContent: true);
+
+        details.Should().Contain("CONTENT    visible");
+        details.Should().Contain("line 1\nline 2");
     }
 
     [Fact(DisplayName = "BuildIndexTitle should highlight the active tab")]
@@ -126,11 +140,11 @@ public sealed class LocalPassViewFormatterTests
     {
         LocalPassViewFormatter.BuildIndexTitle(LocalPassVaultTab.Passwords)
             .Should()
-            .Be("Vault Index :: [Passwords] | Notes  (Tab switch)");
+            .Be("Index :: [Passwords] Notes");
 
         LocalPassViewFormatter.BuildIndexTitle(LocalPassVaultTab.Notes)
             .Should()
-            .Be("Vault Index :: Passwords | [Notes]  (Tab switch)");
+            .Be("Index :: Passwords [Notes]");
     }
 
     [Fact(DisplayName = "FormatStatus should prepend the ready marker")]
@@ -157,4 +171,18 @@ public sealed class LocalPassViewFormatterTests
         masked.Should().Be(expected);
     }
 
+    [Theory(DisplayName = "BuildMaskedNoteContent should clamp the amount of visible mask characters")]
+    [InlineData("", "******** (0 chars hidden)")]
+    [InlineData("note", "******** (4 chars hidden)")]
+    [InlineData("123456789", "********* (9 chars hidden)")]
+    [InlineData("12345678901234567890", "**************** (20 chars hidden)")]
+    [Trait("Category", "Unit")]
+    public void BuildMaskedNoteContentShouldClampTheAmountOfVisibleMaskCharacters(
+        string content,
+        string expected)
+    {
+        var masked = LocalPassViewFormatter.BuildMaskedNoteContent(content);
+
+        masked.Should().Be(expected);
+    }
 }

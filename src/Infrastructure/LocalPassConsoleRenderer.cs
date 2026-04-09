@@ -119,7 +119,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                     new MenuItem("_Delete Item", string.Empty, () => ApplyCommand(controller.DeleteItem()), null, null, Key.D),
                     new MenuItem("_Switch Tab", string.Empty, () => ApplyCommand(controller.ToggleActiveTab()), null, null, Key.Tab),
                     new MenuItem("_Generate && Copy Password", string.Empty, () => ApplyCommand(controller.GenerateAndCopyStrongPassword()), null, null, Key.G),
-                    new MenuItem("_Reveal Passwords", string.Empty, () => ApplyCommand(controller.TogglePasswordVisibility()), null, null, Key.P),
+                    new MenuItem("_Reveal Secret", string.Empty, () => ApplyCommand(controller.TogglePasswordVisibility()), null, null, Key.P),
                     new MenuItem("_Change Master Password", string.Empty, () => ApplyCommand(controller.ChangeMasterPassword()), null, null, Key.R),
                     new MenuItem("_Open Storage Folder", string.Empty, () => ApplyCommand(controller.OpenStorageDirectory()), null, null, Key.O),
                     new MenuItem("_Exit", string.Empty, () => Application.RequestStop(), null, null, Key.Esc)
@@ -139,7 +139,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                 new StatusItem(Key.E, "~E~ Edit", () => ApplyCommand(controller.EditItem())),
                 new StatusItem(Key.D, "~D~ Delete", () => ApplyCommand(controller.DeleteItem())),
                 new StatusItem(Key.O, "~O~ Files", () => ApplyCommand(controller.OpenStorageDirectory())),
-                new StatusItem(Key.P, "~P~ Reveal", () => ApplyCommand(controller.TogglePasswordVisibility())),
+                new StatusItem(Key.P, "~P~ Show", () => ApplyCommand(controller.TogglePasswordVisibility())),
                 new StatusItem(Key.R, "~R~ Master", () => ApplyCommand(controller.ChangeMasterPassword())),
                 new StatusItem(Key.Esc, "~Esc~ Exit", () => Application.RequestStop())
             ])

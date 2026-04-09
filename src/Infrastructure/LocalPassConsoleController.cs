@@ -94,7 +94,7 @@ public sealed class LocalPassConsoleController
             BuildDetailsTitle(selectedSecret, selectedNote),
             _activeTab == LocalPassVaultTab.Passwords
                 ? LocalPassViewFormatter.BuildPasswordDetails(selectedSecret, _revealPasswords)
-                : LocalPassViewFormatter.BuildNoteDetails(selectedNote));
+                : LocalPassViewFormatter.BuildNoteDetails(selectedNote, _revealNotes));
     }
 
     /// <summary>
@@ -154,13 +154,14 @@ public sealed class LocalPassConsoleController
             : DeleteNote(_noteSelectionIndex);
 
     /// <summary>
-    /// Toggles password visibility in the details pane.
+    /// Toggles sensitive content visibility in the details pane.
     /// </summary>
     /// <returns>The command result.</returns>
     public LocalPassConsoleCommandResult TogglePasswordVisibility()
     {
-        _revealPasswords = !_revealPasswords;
-        _currentStatusMessage = _revealPasswords ? "Passwords are visible." : "Passwords are hidden.";
+        _currentStatusMessage = _activeTab == LocalPassVaultTab.Passwords
+            ? TogglePasswordRevealState()
+            : ToggleNoteRevealState();
         return LocalPassConsoleCommandResult.Refresh();
     }
 
@@ -441,9 +442,22 @@ public sealed class LocalPassConsoleController
             ? selectedSecret is null ? "Payload Inspect" : $"Payload :: {selectedSecret.Source.Value}"
             : selectedNote is null ? "Secure Note Inspect" : $"Secure Note :: {selectedNote.Title.Value}";
 
+    private string TogglePasswordRevealState()
+    {
+        _revealPasswords = !_revealPasswords;
+        return _revealPasswords ? "Passwords are visible." : "Passwords are hidden.";
+    }
+
+    private string ToggleNoteRevealState()
+    {
+        _revealNotes = !_revealNotes;
+        return _revealNotes ? "Note content is visible." : "Note content is hidden.";
+    }
+
     private LocalPassVaultTab _activeTab = LocalPassVaultTab.Passwords;
     private string _currentStatusMessage;
     private int _noteSelectionIndex;
     private int _passwordSelectionIndex;
+    private bool _revealNotes;
     private bool _revealPasswords;
 }
