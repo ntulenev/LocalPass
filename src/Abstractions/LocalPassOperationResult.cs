@@ -13,13 +13,16 @@ public sealed class LocalPassOperationResult
     /// <param name="vault">Updated vault snapshot.</param>
     /// <param name="statusMessage">Status message for the UI.</param>
     /// <param name="preferredSelectionId">Optional secret identifier to select after refresh.</param>
+    /// <param name="preferredTab">Optional tab to activate after refresh.</param>
     public LocalPassOperationResult(
         SecretVault vault,
         string statusMessage,
-        Guid? preferredSelectionId = null)
+        Guid? preferredSelectionId = null,
+        LocalPassVaultTab? preferredTab = null)
     {
         CurrentState = new LocalPassViewState(vault, statusMessage);
         PreferredSelectionId = preferredSelectionId;
+        PreferredTab = preferredTab;
     }
 
     /// <summary>
@@ -31,4 +34,9 @@ public sealed class LocalPassOperationResult
     /// Gets the optional preferred selection identifier.
     /// </summary>
     public Guid? PreferredSelectionId { get; }
+
+    /// <summary>
+    /// Gets the optional preferred tab after refresh.
+    /// </summary>
+    public LocalPassVaultTab? PreferredTab { get; }
 }

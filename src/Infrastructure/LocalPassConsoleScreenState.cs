@@ -1,3 +1,5 @@
+using Abstractions;
+
 namespace Infrastructure;
 
 /// <summary>
@@ -10,22 +12,28 @@ public sealed class LocalPassConsoleScreenState
     /// </summary>
     /// <param name="items">List items displayed in the vault index.</param>
     /// <param name="selectedIndex">Zero-based selected item index.</param>
+    /// <param name="activeTab">Currently active vault tab.</param>
     /// <param name="summaryText">Summary label text.</param>
     /// <param name="statusText">Status label text.</param>
+    /// <param name="indexTitle">Index frame title.</param>
     /// <param name="detailsTitle">Details frame title.</param>
     /// <param name="detailsText">Details text.</param>
     public LocalPassConsoleScreenState(
         IReadOnlyList<string> items,
         int selectedIndex,
+        LocalPassVaultTab activeTab,
         string summaryText,
         string statusText,
+        string indexTitle,
         string detailsTitle,
         string detailsText)
     {
         Items = items ?? throw new ArgumentNullException(nameof(items));
         SelectedIndex = selectedIndex;
+        ActiveTab = activeTab;
         SummaryText = summaryText ?? throw new ArgumentNullException(nameof(summaryText));
         StatusText = statusText ?? throw new ArgumentNullException(nameof(statusText));
+        IndexTitle = indexTitle ?? throw new ArgumentNullException(nameof(indexTitle));
         DetailsTitle = detailsTitle ?? throw new ArgumentNullException(nameof(detailsTitle));
         DetailsText = detailsText ?? throw new ArgumentNullException(nameof(detailsText));
     }
@@ -41,6 +49,11 @@ public sealed class LocalPassConsoleScreenState
     public int SelectedIndex { get; }
 
     /// <summary>
+    /// Gets the active vault tab.
+    /// </summary>
+    public LocalPassVaultTab ActiveTab { get; }
+
+    /// <summary>
     /// Gets the summary label text.
     /// </summary>
     public string SummaryText { get; }
@@ -49,6 +62,11 @@ public sealed class LocalPassConsoleScreenState
     /// Gets the status label text.
     /// </summary>
     public string StatusText { get; }
+
+    /// <summary>
+    /// Gets the index frame title.
+    /// </summary>
+    public string IndexTitle { get; }
 
     /// <summary>
     /// Gets the details frame title.

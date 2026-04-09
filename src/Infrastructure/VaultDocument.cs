@@ -28,6 +28,11 @@ public sealed class VaultDocument
     public List<SecretRecordDocument> Entries { get; set; } = [];
 
     /// <summary>
+    /// Gets or sets the stored secure notes.
+    /// </summary>
+    public List<SecureNoteRecordDocument> Notes { get; set; } = [];
+
+    /// <summary>
     /// Creates a mutable storage document from an immutable vault.
     /// </summary>
     /// <param name="vault">Vault model to map.</param>
@@ -41,7 +46,8 @@ public sealed class VaultDocument
             CreatedUtc = vault.CreatedUtc,
             UpdatedUtc = vault.UpdatedUtc,
             DocumentVersion = vault.DocumentVersion,
-            Entries = [.. vault.Entries.Select(SecretRecordDocument.FromModel)]
+            Entries = [.. vault.Entries.Select(SecretRecordDocument.FromModel)],
+            Notes = [.. vault.Notes.Select(SecureNoteRecordDocument.FromModel)]
         };
     }
 
@@ -52,6 +58,7 @@ public sealed class VaultDocument
     public SecretVault ToModel()
         => new(
             Entries.Select(entry => entry.ToModel()),
+            Notes.Select(note => note.ToModel()),
             CreatedUtc,
             UpdatedUtc,
             DocumentVersion);

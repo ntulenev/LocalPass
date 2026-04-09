@@ -25,5 +25,6 @@ public sealed class VaultDocumentTests
         // Assert
         document.Should().NotBeNull();
         document!.DocumentVersion.Should().Be(1);
+        document.Notes.Should().BeEmpty();
     }
 }

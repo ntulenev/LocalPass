@@ -79,6 +79,48 @@ public sealed class LocalPassConsoleSession : ILocalPassConsoleSession
     }
 
     /// <inheritdoc />
+    public LocalPassOperationResult AddNote(SecureNoteEditorInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        var timestamp = _clock.UtcNow;
+        var note = input.ToRecord(timestamp);
+        var updatedVault = _session.Vault.WithNote(note, timestamp);
+        return ApplyUpdatedSession(
+            _vaultStore.Save(_session.WithVault(updatedVault)),
+            $"Saved note {note.Title.Value}.",
+            note.Id,
+            LocalPassVaultTab.Notes);
+    }
+
+    /// <inheritdoc />
+    public LocalPassOperationResult EditNote(Guid noteId, SecureNoteEditorInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        var timestamp = _clock.UtcNow;
+        var note = GetNote(noteId);
+        var updatedRecord = input.ApplyTo(note, timestamp);
+        var updatedVault = _session.Vault.WithNote(updatedRecord, timestamp);
+        return ApplyUpdatedSession(
+            _vaultStore.Save(_session.WithVault(updatedVault)),
+            $"Updated note {updatedRecord.Title.Value}.",
+            updatedRecord.Id,
+            LocalPassVaultTab.Notes);
+    }
+
+    /// <inheritdoc />
+    public LocalPassOperationResult DeleteNote(Guid noteId)
+    {
+        var timestamp = _clock.UtcNow;
+        var updatedVault = _session.Vault.WithoutNote(noteId, timestamp);
+        return ApplyUpdatedSession(
+            _vaultStore.Save(_session.WithVault(updatedVault)),
+            "Secure note deleted.",
+            preferredTab: LocalPassVaultTab.Notes);
+    }
+
+    /// <inheritdoc />
     public LocalPassOperationResult ChangeMasterPassword(MasterPassword newMasterPassword)
     {
         ArgumentNullException.ThrowIfNull(newMasterPassword);
@@ -101,11 +143,12 @@ public sealed class LocalPassConsoleSession : ILocalPassConsoleSession
     private LocalPassOperationResult ApplyUpdatedSession(
         SecretVaultSession updatedSession,
         string statusMessage,
-        Guid? preferredSelectionId = null)
+        Guid? preferredSelectionId = null,
+        LocalPassVaultTab? preferredTab = null)
     {
         _session = updatedSession;
         _currentStatusMessage = statusMessage;
-        return new LocalPassOperationResult(updatedSession.Vault, statusMessage, preferredSelectionId);
+        return new LocalPassOperationResult(updatedSession.Vault, statusMessage, preferredSelectionId, preferredTab);
     }
 
     private SecretRecord GetSecret(Guid secretId)
@@ -114,6 +157,14 @@ public sealed class LocalPassConsoleSession : ILocalPassConsoleSession
         return index < 0
             ? throw new InvalidDataException("Secret record was not found.")
             : _session.Vault.GetSecret(index);
+    }
+
+    private SecureNoteRecord GetNote(Guid noteId)
+    {
+        var index = _session.Vault.FindNoteIndex(noteId);
+        return index < 0
+            ? throw new InvalidDataException("Secure note was not found.")
+            : _session.Vault.GetNote(index);
     }
 
     private readonly IClock _clock;

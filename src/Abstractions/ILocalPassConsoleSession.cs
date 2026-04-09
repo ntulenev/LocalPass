@@ -40,6 +40,28 @@ public interface ILocalPassConsoleSession
     LocalPassOperationResult DeleteSecret(Guid secretId);
 
     /// <summary>
+    /// Adds a new secure note and persists the updated vault.
+    /// </summary>
+    /// <param name="input">Validated secure note editor input.</param>
+    /// <returns>The updated operation result.</returns>
+    LocalPassOperationResult AddNote(SecureNoteEditorInput input);
+
+    /// <summary>
+    /// Updates an existing secure note and persists the updated vault.
+    /// </summary>
+    /// <param name="noteId">Identifier of the secure note to update.</param>
+    /// <param name="input">Validated secure note editor input.</param>
+    /// <returns>The updated operation result.</returns>
+    LocalPassOperationResult EditNote(Guid noteId, SecureNoteEditorInput input);
+
+    /// <summary>
+    /// Deletes an existing secure note and persists the updated vault.
+    /// </summary>
+    /// <param name="noteId">Identifier of the secure note to delete.</param>
+    /// <returns>The updated operation result.</returns>
+    LocalPassOperationResult DeleteNote(Guid noteId);
+
+    /// <summary>
     /// Changes the master password and re-encrypts the vault.
     /// </summary>
     /// <param name="newMasterPassword">Validated new master password.</param>

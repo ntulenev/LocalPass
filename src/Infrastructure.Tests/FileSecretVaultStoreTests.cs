@@ -41,6 +41,30 @@ public sealed class FileSecretVaultStoreTests : IDisposable
         reopenedSession.Vault.DocumentVersion.Should().Be(2);
     }
 
+    [Fact(DisplayName = "CreateNew and Open should round-trip encrypted secure notes")]
+    [Trait("Category", "Unit")]
+    public void CreateNewAndOpenShouldRoundTripEncryptedSecureNotes()
+    {
+        var clock = new StubClock(new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero));
+        var store = new FileSecretVaultStore(_storageDirectory, clock);
+        var masterPassword = new MasterPassword("StrongMasterPassword1!");
+        var createdSession = store.CreateNew(masterPassword);
+        var note = SecureNoteRecord.Create(
+            "Taxes",
+            "2025 filing",
+            "line 1\nline 2",
+            clock.UtcNow);
+
+        _ = store.Save(createdSession.WithVault(createdSession.Vault.WithNote(note, clock.UtcNow)));
+        var reopenedSession = store.Open(masterPassword);
+
+        reopenedSession.Vault.NoteCount.Should().Be(1);
+        reopenedSession.Vault.GetNote(0).Title.Value.Should().Be("Taxes");
+        reopenedSession.Vault.GetNote(0).Description.Value.Should().Be("2025 filing");
+        reopenedSession.Vault.GetNote(0).Content.Value.Should().Be("line 1\nline 2");
+        reopenedSession.Vault.DocumentVersion.Should().Be(2);
+    }
+
     [Fact(DisplayName = "Save should create a snapshot when replacing an existing vault file")]
     [Trait("Category", "Unit")]
     public void SaveShouldCreateASnapshotWhenReplacingAnExistingVaultFile()

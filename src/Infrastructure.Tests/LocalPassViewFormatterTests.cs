@@ -1,3 +1,5 @@
+using Abstractions;
+
 using FluentAssertions;
 
 using Models;
@@ -6,108 +8,137 @@ namespace Infrastructure.Tests;
 
 public sealed class LocalPassViewFormatterTests
 {
-    [Fact(DisplayName = "BuildListItems should create indexed labels for each vault entry")]
+    [Fact(DisplayName = "BuildPasswordListItems should create indexed labels for each vault entry")]
     [Trait("Category", "Unit")]
-    public void BuildListItemsShouldCreateIndexedLabelsForEachVaultEntry()
+    public void BuildPasswordListItemsShouldCreateIndexedLabelsForEachVaultEntry()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var first = SecretRecord.Create("Alpha", "first", "Password123!", null, timestamp);
         var second = SecretRecord.Create("Beta", "second", "Password123!", null, timestamp);
-        var vault = new SecretVault([first, second], timestamp, timestamp);
 
-        // Act
-        var items = LocalPassViewFormatter.BuildListItems(vault);
+        var items = LocalPassViewFormatter.BuildPasswordListItems([first, second]);
 
-        // Assert
         items.Should().ContainInOrder(
             "[1] Alpha | first",
             "[2] Beta | second");
     }
 
-    [Fact(DisplayName = "BuildSummary should include the selected secret when available")]
+    [Fact(DisplayName = "BuildNoteListItems should create indexed labels for each secure note")]
     [Trait("Category", "Unit")]
-    public void BuildSummaryShouldIncludeTheSelectedSecretWhenAvailable()
+    public void BuildNoteListItemsShouldCreateIndexedLabelsForEachSecureNote()
     {
-        // Arrange
+        var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
+        var first = SecureNoteRecord.Create("Server", "prod access", "keep this safe", timestamp);
+        var second = SecureNoteRecord.Create("Tax", "2025 docs", "important", timestamp);
+
+        var items = LocalPassViewFormatter.BuildNoteListItems([first, second]);
+
+        items.Should().ContainInOrder(
+            "[1] Server | prod access",
+            "[2] Tax | 2025 docs");
+    }
+
+    [Fact(DisplayName = "BuildSummary should include counts, active tab, and selected label")]
+    [Trait("Category", "Unit")]
+    public void BuildSummaryShouldIncludeCountsActiveTabAndSelectedLabel()
+    {
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var secret = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, timestamp);
-        var vault = new SecretVault([secret], timestamp, timestamp);
+        var note = SecureNoteRecord.Create("Taxes", "2025 filing", "very important", timestamp);
+        var vault = new SecretVault([secret], [note], timestamp, timestamp);
 
-        // Act
-        var summary = LocalPassViewFormatter.BuildSummary(vault, secret);
+        var summary = LocalPassViewFormatter.BuildSummary(
+            vault,
+            LocalPassVaultTab.Passwords,
+            "GitHub / user@example.com");
 
-        // Assert
-        summary.Should().Be("VAULT 001  LAST WRITE 2026-04-03 12:00 UTC  DOC V001  TARGET GitHub / user@example.com");
+        summary.Should().Be(
+            "PASSWORDS 001  NOTES 001  ACTIVE PASSWORDS  LAST WRITE 2026-04-03 12:00 UTC  DOC V001  TARGET GitHub / user@example.com");
     }
 
     [Fact(DisplayName = "BuildSummary should show none when nothing is selected")]
     [Trait("Category", "Unit")]
     public void BuildSummaryShouldShowNoneWhenNothingIsSelected()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var vault = SecretVault.CreateEmpty(timestamp);
 
-        // Act
-        var summary = LocalPassViewFormatter.BuildSummary(vault, null);
+        var summary = LocalPassViewFormatter.BuildSummary(vault, LocalPassVaultTab.Notes, null);
 
-        // Assert
-        summary.Should().Be("VAULT 000  LAST WRITE 2026-04-03 12:00 UTC  DOC V001  TARGET none");
+        summary.Should().Be(
+            "PASSWORDS 000  NOTES 000  ACTIVE NOTES  LAST WRITE 2026-04-03 12:00 UTC  DOC V001  TARGET none");
     }
 
-    [Fact(DisplayName = "BuildDetails should instruct the user to create a record when the vault is empty")]
+    [Fact(DisplayName = "BuildPasswordDetails should instruct the user to create a record when the tab is empty")]
     [Trait("Category", "Unit")]
-    public void BuildDetailsShouldInstructTheUserToCreateARecordWhenTheVaultIsEmpty()
+    public void BuildPasswordDetailsShouldInstructTheUserToCreateARecordWhenTheTabIsEmpty()
     {
-        // Act
-        var details = LocalPassViewFormatter.BuildDetails(null, revealPasswords: false);
+        var details = LocalPassViewFormatter.BuildPasswordDetails(null, revealPasswords: false);
 
-        // Assert
-        details.Should().Be("No secrets indexed.\n\nPress N to create the first record.");
+        details.Should().Be("No passwords indexed.\n\nPress N to create the first record.");
     }
 
-    [Fact(DisplayName = "BuildDetails should mask the password when reveal is disabled")]
+    [Fact(DisplayName = "BuildPasswordDetails should mask the password when reveal is disabled")]
     [Trait("Category", "Unit")]
-    public void BuildDetailsShouldMaskThePasswordWhenRevealIsDisabled()
+    public void BuildPasswordDetailsShouldMaskThePasswordWhenRevealIsDisabled()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var secret = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, timestamp);
 
-        // Act
-        var details = LocalPassViewFormatter.BuildDetails(secret, revealPasswords: false);
+        var details = LocalPassViewFormatter.BuildPasswordDetails(secret, revealPasswords: false);
 
-        // Assert
         details.Should().Contain("PASSWORD  ************ (12 chars hidden)");
         details.Should().Contain("NOTES     (none)");
     }
 
-    [Fact(DisplayName = "BuildDetails should reveal the password when explicitly requested")]
+    [Fact(DisplayName = "BuildPasswordDetails should reveal the password when explicitly requested")]
     [Trait("Category", "Unit")]
-    public void BuildDetailsShouldRevealThePasswordWhenExplicitlyRequested()
+    public void BuildPasswordDetailsShouldRevealThePasswordWhenExplicitlyRequested()
     {
-        // Arrange
         var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
         var secret = SecretRecord.Create("GitHub", "user@example.com", "Password123!", "primary", timestamp);
 
-        // Act
-        var details = LocalPassViewFormatter.BuildDetails(secret, revealPasswords: true);
+        var details = LocalPassViewFormatter.BuildPasswordDetails(secret, revealPasswords: true);
 
-        // Assert
         details.Should().Contain("PASSWORD  Password123!");
         details.Should().Contain("NOTES     primary");
         details.Should().Contain($"RECORD ID {secret.Id}");
+    }
+
+    [Fact(DisplayName = "BuildNoteDetails should render note content and metadata")]
+    [Trait("Category", "Unit")]
+    public void BuildNoteDetailsShouldRenderNoteContentAndMetadata()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
+        var note = SecureNoteRecord.Create("Taxes", "2025 filing", "line 1\nline 2", timestamp);
+
+        var details = LocalPassViewFormatter.BuildNoteDetails(note);
+
+        details.Should().Contain("TITLE      Taxes");
+        details.Should().Contain("SUMMARY    2025 filing");
+        details.Should().Contain("line 1\nline 2");
+        details.Should().Contain($"NOTE ID    {note.Id}");
+    }
+
+    [Fact(DisplayName = "BuildIndexTitle should highlight the active tab")]
+    [Trait("Category", "Unit")]
+    public void BuildIndexTitleShouldHighlightTheActiveTab()
+    {
+        LocalPassViewFormatter.BuildIndexTitle(LocalPassVaultTab.Passwords)
+            .Should()
+            .Be("Vault Index :: [Passwords] | Notes  (Tab switch)");
+
+        LocalPassViewFormatter.BuildIndexTitle(LocalPassVaultTab.Notes)
+            .Should()
+            .Be("Vault Index :: Passwords | [Notes]  (Tab switch)");
     }
 
     [Fact(DisplayName = "FormatStatus should prepend the ready marker")]
     [Trait("Category", "Unit")]
     public void FormatStatusShouldPrependTheReadyMarker()
     {
-        // Act
         var status = LocalPassViewFormatter.FormatStatus("Vault synced.");
 
-        // Assert
         status.Should().Be("[ READY ] Vault synced.");
     }
 
@@ -121,10 +152,9 @@ public sealed class LocalPassViewFormatterTests
         string password,
         string expected)
     {
-        // Act
         var masked = LocalPassViewFormatter.BuildMaskedPassword(password);
 
-        // Assert
         masked.Should().Be(expected);
     }
+
 }

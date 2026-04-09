@@ -10,118 +10,136 @@ namespace Infrastructure.Tests;
 
 public sealed class LocalPassConsoleControllerTests
 {
-    [Fact(DisplayName = "BuildScreenState should clamp selection to the last available item")]
+    [Fact(DisplayName = "BuildScreenState should clamp selection to the last available password")]
     [Trait("Category", "Unit")]
-    public void BuildScreenStateShouldClampSelectionToTheLastAvailableItem()
+    public void BuildScreenStateShouldClampSelectionToTheLastAvailablePassword()
     {
         var session = BuildSessionWithState(
             [SecretRecord.Create("Alpha", "first", "Password123!", null, Timestamp)],
+            [],
             "Ready.");
-        var controller = new LocalPassConsoleController(
-            session.Object,
-            _ => null,
-            () => null,
-            _ => false,
-            () => StrongPasswordGenerator.Generate(),
-            _ => true);
+        var controller = CreateController(session.Object);
+        controller.SetSelectedIndex(10);
 
-        var state = controller.BuildScreenState(previousSelection: 10);
+        var state = controller.BuildScreenState();
 
         state.SelectedIndex.Should().Be(0);
         state.StatusText.Should().Be("[ READY ] Ready.");
         state.DetailsTitle.Should().Be("Payload :: Alpha");
+        state.ActiveTab.Should().Be(LocalPassVaultTab.Passwords);
     }
 
-    [Fact(DisplayName = "AddSecret should refresh and preserve the preferred selection from the session")]
+    [Fact(DisplayName = "AddItem should refresh and preserve the preferred selection from the session")]
     [Trait("Category", "Unit")]
-    public void AddSecretShouldRefreshAndPreserveThePreferredSelectionFromTheSession()
+    public void AddItemShouldRefreshAndPreserveThePreferredSelectionFromTheSession()
     {
         var input = SecretEditorInput.Create("GitHub", "user@example.com", "Password123!", "primary");
         var createdRecord = input.ToRecord(Timestamp);
-        var session = BuildSessionWithState([], "Ready.");
+        var session = BuildSessionWithState([], [], "Ready.");
         _ = session
             .Setup(item => item.AddSecret(input))
             .Returns(new LocalPassOperationResult(
                 new SecretVault([createdRecord], Timestamp, Timestamp),
                 "Saved GitHub.",
                 createdRecord.Id));
-        var controller = new LocalPassConsoleController(
-            session.Object,
-            _ => input,
-            () => null,
-            _ => false,
-            () => StrongPasswordGenerator.Generate(),
-            _ => true);
+        var controller = CreateController(session.Object, showSecretDialog: _ => input);
 
-        var result = controller.AddSecret();
+        var result = controller.AddItem();
 
         result.ShouldRefresh.Should().BeTrue();
         result.PreferredSelectionId.Should().Be(createdRecord.Id);
         session.Verify(item => item.AddSecret(input), Times.Once);
     }
 
-    [Fact(DisplayName = "DeleteSecret should update the status when deletion is cancelled")]
+    [Fact(DisplayName = "DeleteItem should update the status when password deletion is cancelled")]
     [Trait("Category", "Unit")]
-    public void DeleteSecretShouldUpdateTheStatusWhenDeletionIsCancelled()
+    public void DeleteItemShouldUpdateTheStatusWhenPasswordDeletionIsCancelled()
     {
         var record = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, Timestamp);
-        var session = BuildSessionWithState([record], "Ready.");
-        var controller = new LocalPassConsoleController(
-            session.Object,
-            _ => null,
-            () => null,
-            _ => false,
-            () => StrongPasswordGenerator.Generate(),
-            _ => true);
+        var session = BuildSessionWithState([record], [], "Ready.");
+        var controller = CreateController(session.Object, confirmDeleteSecret: _ => false);
 
-        var result = controller.DeleteSecret(0);
-        var state = controller.BuildScreenState(previousSelection: 0);
+        var result = controller.DeleteItem();
+        var state = controller.BuildScreenState();
 
         result.ShouldRefresh.Should().BeTrue();
         state.StatusText.Should().Be("[ READY ] Delete cancelled.");
         session.Verify(item => item.DeleteSecret(It.IsAny<Guid>()), Times.Never);
     }
 
-    [Fact(DisplayName = "TogglePasswordVisibility should refresh and update the details text")]
+    [Fact(DisplayName = "TogglePasswordVisibility should refresh and update the password details text")]
     [Trait("Category", "Unit")]
-    public void TogglePasswordVisibilityShouldRefreshAndUpdateTheDetailsText()
+    public void TogglePasswordVisibilityShouldRefreshAndUpdateThePasswordDetailsText()
     {
         var record = SecretRecord.Create("GitHub", "user@example.com", "Password123!", null, Timestamp);
-        var session = BuildSessionWithState([record], "Ready.");
-        var controller = new LocalPassConsoleController(
-            session.Object,
-            _ => null,
-            () => null,
-            _ => false,
-            () => StrongPasswordGenerator.Generate(),
-            _ => true);
+        var session = BuildSessionWithState([record], [], "Ready.");
+        var controller = CreateController(session.Object);
 
         var result = controller.TogglePasswordVisibility();
-        var state = controller.BuildScreenState(previousSelection: 0);
+        var state = controller.BuildScreenState();
 
         result.ShouldRefresh.Should().BeTrue();
         state.StatusText.Should().Be("[ READY ] Passwords are visible.");
         state.DetailsText.Should().Contain("PASSWORD  Password123!");
     }
 
+    [Fact(DisplayName = "ToggleActiveTab should switch to notes and render note details")]
+    [Trait("Category", "Unit")]
+    public void ToggleActiveTabShouldSwitchToNotesAndRenderNoteDetails()
+    {
+        var note = SecureNoteRecord.Create("Taxes", "2025 filing", "important", Timestamp);
+        var session = BuildSessionWithState([], [note], "Ready.");
+        var controller = CreateController(session.Object);
+
+        var result = controller.ToggleActiveTab();
+        var state = controller.BuildScreenState();
+
+        result.ShouldRefresh.Should().BeTrue();
+        state.ActiveTab.Should().Be(LocalPassVaultTab.Notes);
+        state.DetailsTitle.Should().Be("Secure Note :: Taxes");
+        state.DetailsText.Should().Contain("SUMMARY    2025 filing");
+        state.DetailsText.Should().Contain("important");
+        state.StatusText.Should().Be("[ READY ] Switched to secure notes.");
+    }
+
+    [Fact(DisplayName = "AddItem should use the note workflow when notes tab is active")]
+    [Trait("Category", "Unit")]
+    public void AddItemShouldUseTheNoteWorkflowWhenNotesTabIsActive()
+    {
+        var input = SecureNoteEditorInput.Create("Taxes", "2025 filing", "important");
+        var createdNote = input.ToRecord(Timestamp);
+        var session = BuildSessionWithState([], [], "Ready.");
+        _ = session
+            .Setup(item => item.AddNote(input))
+            .Returns(new LocalPassOperationResult(
+                new SecretVault([], [createdNote], Timestamp, Timestamp),
+                "Saved note Taxes.",
+                createdNote.Id,
+                LocalPassVaultTab.Notes));
+        var controller = CreateController(session.Object, showNoteDialog: _ => input);
+        _ = controller.ToggleActiveTab();
+
+        var result = controller.AddItem();
+        var state = controller.BuildScreenState(result.PreferredSelectionId);
+
+        result.ShouldRefresh.Should().BeTrue();
+        result.PreferredSelectionId.Should().Be(createdNote.Id);
+        state.ActiveTab.Should().Be(LocalPassVaultTab.Notes);
+        session.Verify(item => item.AddNote(input), Times.Once);
+    }
+
     [Fact(DisplayName = "OpenStorageDirectory should return an error result when the session throws")]
     [Trait("Category", "Unit")]
     public void OpenStorageDirectoryShouldReturnAnErrorResultWhenTheSessionThrows()
     {
-        var session = BuildSessionWithState([], "Ready.");
+        var session = BuildSessionWithState([], [], "Ready.");
         _ = session
             .Setup(item => item.OpenStorageDirectory())
             .Throws(new InvalidOperationException("Cannot open folder."));
-        var controller = new LocalPassConsoleController(
-            session.Object,
-            _ => null,
-            () => null,
-            _ => false,
-            () => StrongPasswordGenerator.Generate(),
-            _ => true);
+        var controller = CreateController(session.Object);
 
         var result = controller.OpenStorageDirectory();
-        var state = controller.BuildScreenState(previousSelection: 0);
+        var state = controller.BuildScreenState();
 
         result.ShouldRefresh.Should().BeTrue();
         result.ErrorDialogTitle.Should().Be("Open folder failed");
@@ -134,22 +152,19 @@ public sealed class LocalPassConsoleControllerTests
     public void GenerateAndCopyStrongPasswordShouldRefreshAfterCopyingAGeneratedPassword()
     {
         const string generatedPassword = "Str0ng!Generated?Pwd";
-        var session = BuildSessionWithState([], "Ready.");
+        var session = BuildSessionWithState([], [], "Ready.");
         string? clipboardValue = null;
-        var controller = new LocalPassConsoleController(
+        var controller = CreateController(
             session.Object,
-            _ => null,
-            () => null,
-            _ => false,
-            () => generatedPassword,
-            value =>
+            generateStrongPassword: () => generatedPassword,
+            copyToClipboard: value =>
             {
                 clipboardValue = value;
                 return true;
             });
 
         var result = controller.GenerateAndCopyStrongPassword();
-        var state = controller.BuildScreenState(previousSelection: 0);
+        var state = controller.BuildScreenState();
 
         result.ShouldRefresh.Should().BeTrue();
         result.ErrorDialogTitle.Should().BeNull();
@@ -161,17 +176,14 @@ public sealed class LocalPassConsoleControllerTests
     [Trait("Category", "Unit")]
     public void GenerateAndCopyStrongPasswordShouldReturnAnErrorWhenClipboardCopyFails()
     {
-        var session = BuildSessionWithState([], "Ready.");
-        var controller = new LocalPassConsoleController(
+        var session = BuildSessionWithState([], [], "Ready.");
+        var controller = CreateController(
             session.Object,
-            _ => null,
-            () => null,
-            _ => false,
-            () => "Str0ng!Generated?Pwd",
-            _ => false);
+            generateStrongPassword: () => "Str0ng!Generated?Pwd",
+            copyToClipboard: _ => false);
 
         var result = controller.GenerateAndCopyStrongPassword();
-        var state = controller.BuildScreenState(previousSelection: 0);
+        var state = controller.BuildScreenState();
 
         result.ShouldRefresh.Should().BeTrue();
         result.ErrorDialogTitle.Should().Be("Clipboard copy failed");
@@ -179,11 +191,30 @@ public sealed class LocalPassConsoleControllerTests
         state.StatusText.Should().Be("[ READY ] Clipboard copy failed: The generated password could not be copied to the clipboard.");
     }
 
+    private static LocalPassConsoleController CreateController(
+        ILocalPassConsoleSession session,
+        Func<SecretRecord?, SecretEditorInput?>? showSecretDialog = null,
+        Func<SecureNoteRecord?, SecureNoteEditorInput?>? showNoteDialog = null,
+        Func<SecretRecord, bool>? confirmDeleteSecret = null,
+        Func<SecureNoteRecord, bool>? confirmDeleteNote = null,
+        Func<string>? generateStrongPassword = null,
+        Func<string, bool>? copyToClipboard = null)
+        => new(
+            session,
+            showSecretDialog ?? (_ => null),
+            showNoteDialog ?? (_ => null),
+            () => null,
+            confirmDeleteSecret ?? (_ => false),
+            confirmDeleteNote ?? (_ => false),
+            generateStrongPassword ?? (() => StrongPasswordGenerator.Generate()),
+            copyToClipboard ?? (_ => true));
+
     private static Mock<ILocalPassConsoleSession> BuildSessionWithState(
         IReadOnlyList<SecretRecord> records,
+        IReadOnlyList<SecureNoteRecord> notes,
         string statusMessage)
     {
-        var vault = new SecretVault(records, Timestamp, Timestamp);
+        var vault = new SecretVault(records, notes, Timestamp, Timestamp);
         var session = new Mock<ILocalPassConsoleSession>(MockBehavior.Strict);
         _ = session.SetupGet(item => item.CurrentVault).Returns(vault);
         _ = session.SetupGet(item => item.CurrentStatusMessage).Returns(statusMessage);

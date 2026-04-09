@@ -134,6 +134,80 @@ public sealed class LocalPassConsoleSessionTests
         store.VerifyNoOtherCalls();
     }
 
+    [Fact(DisplayName = "AddNote should create a secure note and switch the preferred tab to notes")]
+    [Trait("Category", "Unit")]
+    public void AddNoteShouldCreateASecureNoteAndSwitchThePreferredTabToNotes()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
+        var session = CreateSession(timestamp);
+        var input = SecureNoteEditorInput.Create("Taxes", "2025 filing", "important");
+        var clock = new StubClock(timestamp);
+        var store = new Mock<ISecretVaultStore>(MockBehavior.Strict);
+        var storageLocation = new Mock<ISecretVaultStorageLocation>(MockBehavior.Strict);
+        var folderOpener = new Mock<IFolderOpener>(MockBehavior.Strict);
+        SecretVaultSession? capturedSession = null;
+        _ = store
+            .Setup(item => item.Save(It.IsAny<SecretVaultSession>()))
+            .Returns<SecretVaultSession>(value =>
+            {
+                capturedSession = value;
+                return value;
+            });
+        var appSession = new LocalPassConsoleSession(
+            session,
+            store.Object,
+            clock,
+            storageLocation.Object,
+            folderOpener.Object);
+
+        var result = appSession.AddNote(input);
+
+        capturedSession.Should().NotBeNull();
+        capturedSession!.Vault.NoteCount.Should().Be(1);
+        appSession.CurrentVault.NoteCount.Should().Be(1);
+        appSession.CurrentStatusMessage.Should().Be("Saved note Taxes.");
+        result.PreferredTab.Should().Be(LocalPassVaultTab.Notes);
+        result.PreferredSelectionId.Should().Be(capturedSession.Vault.GetNote(0).Id);
+        store.Verify(item => item.Save(It.IsAny<SecretVaultSession>()), Times.Once);
+        store.VerifyNoOtherCalls();
+    }
+
+    [Fact(DisplayName = "DeleteNote should remove the note and keep the notes tab active")]
+    [Trait("Category", "Unit")]
+    public void DeleteNoteShouldRemoveTheNoteAndKeepTheNotesTabActive()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 3, 12, 0, 0, TimeSpan.Zero);
+        var existingNote = SecureNoteRecord.Create("Taxes", "2025 filing", "important", timestamp);
+        var session = CreateSession(timestamp, [], [existingNote]);
+        var clock = new StubClock(timestamp.AddMinutes(1));
+        var store = new Mock<ISecretVaultStore>(MockBehavior.Strict);
+        var storageLocation = new Mock<ISecretVaultStorageLocation>(MockBehavior.Strict);
+        var folderOpener = new Mock<IFolderOpener>(MockBehavior.Strict);
+        SecretVaultSession? capturedSession = null;
+        _ = store
+            .Setup(item => item.Save(It.IsAny<SecretVaultSession>()))
+            .Returns<SecretVaultSession>(value =>
+            {
+                capturedSession = value;
+                return value;
+            });
+        var appSession = new LocalPassConsoleSession(
+            session,
+            store.Object,
+            clock,
+            storageLocation.Object,
+            folderOpener.Object);
+
+        var result = appSession.DeleteNote(existingNote.Id);
+
+        capturedSession.Should().NotBeNull();
+        capturedSession!.Vault.HasNotes.Should().BeFalse();
+        appSession.CurrentStatusMessage.Should().Be("Secure note deleted.");
+        result.PreferredTab.Should().Be(LocalPassVaultTab.Notes);
+        store.Verify(item => item.Save(It.IsAny<SecretVaultSession>()), Times.Once);
+        store.VerifyNoOtherCalls();
+    }
+
     [Fact(DisplayName = "ChangeMasterPassword should delegate re-encryption to the vault store")]
     [Trait("Category", "Unit")]
     public void ChangeMasterPasswordShouldDelegateReEncryptionToTheVaultStore()
@@ -219,7 +293,15 @@ public sealed class LocalPassConsoleSessionTests
     }
 
     private static SecretVaultSession CreateSession(DateTimeOffset timestamp, params SecretRecord[] entries)
-        => new(new SecretVault(entries, timestamp, timestamp), new MasterPassword("StrongMasterPassword1!"));
+        => CreateSession(timestamp, entries, []);
+
+    private static SecretVaultSession CreateSession(
+        DateTimeOffset timestamp,
+        SecretRecord[] entries,
+        SecureNoteRecord[] notes)
+        => new(
+            new SecretVault(entries, notes, timestamp, timestamp),
+            new MasterPassword("StrongMasterPassword1!"));
 
     private sealed class StubClock(DateTimeOffset utcNow) : IClock
     {

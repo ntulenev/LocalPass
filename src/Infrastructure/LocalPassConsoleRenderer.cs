@@ -44,14 +44,16 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             var controller = new LocalPassConsoleController(
                 session,
                 SecretEditorDialog.Prompt,
+                SecureNoteEditorDialog.Prompt,
                 MasterPasswordDialog.Prompt,
-                ConfirmDelete,
+                ConfirmDeleteSecret,
+                ConfirmDeleteNote,
                 () => StrongPasswordGenerator.Generate(),
                 TryCopyToClipboard);
 
-            void RefreshUi(Guid? preferredSelectionId = null)
+            void RefreshUi(Guid? preferredSelectionId = null, LocalPassVaultTab? preferredTab = null)
             {
-                var screenState = controller.BuildScreenState(listView.SelectedItem, preferredSelectionId);
+                var screenState = controller.BuildScreenState(preferredSelectionId, preferredTab);
 
                 listView.SetSource(screenState.Items.ToList());
                 if (listView.SelectedItem != screenState.SelectedIndex)
@@ -69,6 +71,7 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
 
                 summaryLabel.Text = screenState.SummaryText;
                 statusLabel.Text = screenState.StatusText;
+                listFrame.Title = screenState.IndexTitle;
                 detailsFrame.Title = screenState.DetailsTitle;
                 detailsView.Text = screenState.DetailsText;
             }
@@ -94,15 +97,27 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
                     return;
                 }
 
+                controller.SetSelectedIndex(listView.SelectedItem);
                 RefreshUi();
             };
-            listView.OpenSelectedItem += _ => ApplyCommand(controller.EditSecret(listView.SelectedItem));
+            listView.OpenSelectedItem += _ => ApplyCommand(controller.EditItem());
+            listView.KeyPress += args =>
+            {
+                if (args.KeyEvent.Key != Key.Tab)
+                {
+                    return;
+                }
+
+                ApplyCommand(controller.ToggleActiveTab());
+                args.Handled = true;
+            };
 
             using var menuBar = new MenuBar([
                 new MenuBarItem("_Commands", [
-                    new MenuItem("_New Secret", string.Empty, () => ApplyCommand(controller.AddSecret()), null, null, Key.N),
-                    new MenuItem("_Edit Secret", string.Empty, () => ApplyCommand(controller.EditSecret(listView.SelectedItem)), null, null, Key.E),
-                    new MenuItem("_Delete Secret", string.Empty, () => ApplyCommand(controller.DeleteSecret(listView.SelectedItem)), null, null, Key.D),
+                    new MenuItem("_New Item", string.Empty, () => ApplyCommand(controller.AddItem()), null, null, Key.N),
+                    new MenuItem("_Edit Item", string.Empty, () => ApplyCommand(controller.EditItem()), null, null, Key.E),
+                    new MenuItem("_Delete Item", string.Empty, () => ApplyCommand(controller.DeleteItem()), null, null, Key.D),
+                    new MenuItem("_Switch Tab", string.Empty, () => ApplyCommand(controller.ToggleActiveTab()), null, null, Key.Tab),
                     new MenuItem("_Generate && Copy Password", string.Empty, () => ApplyCommand(controller.GenerateAndCopyStrongPassword()), null, null, Key.G),
                     new MenuItem("_Reveal Passwords", string.Empty, () => ApplyCommand(controller.TogglePasswordVisibility()), null, null, Key.P),
                     new MenuItem("_Change Master Password", string.Empty, () => ApplyCommand(controller.ChangeMasterPassword()), null, null, Key.R),
@@ -118,10 +133,11 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
             };
 
             using var statusBar = new StatusBar([
-                new StatusItem(Key.N, "~N~ New", () => ApplyCommand(controller.AddSecret())),
+                new StatusItem(Key.Tab, "~Tab~ Switch", () => ApplyCommand(controller.ToggleActiveTab())),
+                new StatusItem(Key.N, "~N~ New", () => ApplyCommand(controller.AddItem())),
                 new StatusItem(Key.G, "~G~ Generate", () => ApplyCommand(controller.GenerateAndCopyStrongPassword())),
-                new StatusItem(Key.E, "~E~ Edit", () => ApplyCommand(controller.EditSecret(listView.SelectedItem))),
-                new StatusItem(Key.D, "~D~ Delete", () => ApplyCommand(controller.DeleteSecret(listView.SelectedItem))),
+                new StatusItem(Key.E, "~E~ Edit", () => ApplyCommand(controller.EditItem())),
+                new StatusItem(Key.D, "~D~ Delete", () => ApplyCommand(controller.DeleteItem())),
                 new StatusItem(Key.O, "~O~ Files", () => ApplyCommand(controller.OpenStorageDirectory())),
                 new StatusItem(Key.P, "~P~ Reveal", () => ApplyCommand(controller.TogglePasswordVisibility())),
                 new StatusItem(Key.R, "~R~ Master", () => ApplyCommand(controller.ChangeMasterPassword())),
@@ -146,10 +162,17 @@ public sealed class LocalPassConsoleRenderer : ISecretVaultConsoleRenderer
         return Task.CompletedTask;
     }
 
-    private static bool ConfirmDelete(SecretRecord secret)
+    private static bool ConfirmDeleteSecret(SecretRecord secret)
         => MessageBox.Query(
             "Delete secret",
             $"Delete {secret.Source.Value} / {secret.Login.Value}?",
+            "Delete",
+            "Cancel") == 0;
+
+    private static bool ConfirmDeleteNote(SecureNoteRecord note)
+        => MessageBox.Query(
+            "Delete secure note",
+            $"Delete note {note.Title.Value}?",
             "Delete",
             "Cancel") == 0;
 
